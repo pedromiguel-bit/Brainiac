@@ -7,9 +7,11 @@ require('dotenv').config();
 
 class AIService {
   constructor() {
-    this.client = new Anthropic({
-      apiKey: process.env.ANTHROPIC_API_KEY
-    });
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error('ANTHROPIC_API_KEY não está definida nas variáveis de ambiente');
+    }
+    this.client = new Anthropic({ apiKey });
   }
 
   /**

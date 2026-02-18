@@ -6,12 +6,14 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Variáveis de ambiente de produção
+ENV NODE_ENV=production
+
 # Copiar package.json para cache de dependências
 COPY package.json ./
 
-# Instalar apenas dependências de produção (sem electron/electron-builder)
-RUN npm install --omit=dev --ignore-scripts && \
-    npm cache clean --force
+# Instalar dependências de produção (sem electron/electron-builder)
+RUN npm install --omit=dev && npm cache clean --force
 
 # Copiar código do servidor e serviços backend
 COPY server.js ./
@@ -22,20 +24,18 @@ COPY .env.example ./
 # Copiar arquivos do frontend (versão web)
 COPY public/ ./public/
 
-# Copiar renderer.js e styles.css para a pasta public
+# Copiar renderer.js, styles.css e icon para public/
 COPY renderer.js ./public/renderer.js
 COPY styles.css ./public/styles.css
 COPY icon.png ./public/icon.png
 
-# O .env NÃO é copiado - configure as variáveis de ambiente no EasyPanel
-# Copiar google-credentials.json se existir (o [n] torna opcional)
-COPY google-credentials.jso[n] ./
+# NÃO copiar .env — configure variáveis de ambiente no EasyPanel
 
 # Expor porta
 EXPOSE 3000
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=15s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
 
 # Iniciar servidor

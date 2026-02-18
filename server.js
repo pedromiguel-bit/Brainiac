@@ -3,15 +3,33 @@
 // Substitui o main.js do Electron por um servidor Express
 // ============================================================================
 
+// Carregar variáveis de ambiente (.env se existir, caso contrário usa env vars do sistema)
+require('dotenv').config();
+
 const express = require('express');
 const path = require('path');
-const AIService = require('./ai-service');
-const GoogleSheetsService = require('./google-sheets-service');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// ============================================================================
+// Tratamento de erros global — impede que o processo morra
+// ============================================================================
+
+process.on('uncaughtException', (err) => {
+    console.error('❌ Uncaught Exception:', err.message);
+    console.error(err.stack);
+    // NÃO finaliza o processo — mantém o server rodando
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Unhandled Rejection:', reason);
+});
+
+// ============================================================================
 // Middleware
+// ============================================================================
+
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -19,28 +37,38 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ============================================================================
-// Inicializar serviços
+// Inicializar serviços (de forma segura — nunca crasha)
 // ============================================================================
 
 let aiService = null;
 let sheetsService = null;
 
+// AI Service
 try {
-    aiService = new AIService();
-    console.log('✓ Serviço de IA inicializado');
+    if (!process.env.ANTHROPIC_API_KEY) {
+        console.warn('⚠ ANTHROPIC_API_KEY não definida — IA desabilitada');
+    } else {
+        const AIService = require('./ai-service');
+        aiService = new AIService();
+        console.log('✓ Serviço de IA inicializado');
+    }
 } catch (error) {
-    console.error('⚠ Erro ao inicializar IA:', error.message);
+    console.error('⚠ Erro ao inicializar IA (servidor continua):', error.message);
+    aiService = null;
 }
 
+// Google Sheets Service
 try {
+    const GoogleSheetsService = require('./google-sheets-service');
     sheetsService = new GoogleSheetsService();
     if (sheetsService.isConfigured()) {
         console.log('✓ Google Sheets configurado');
     } else {
-        console.log('⚠ Google Sheets não configurado');
+        console.log('⚠ Google Sheets não configurado (faltam GOOGLE_SHEETS_ID / GOOGLE_API_KEY)');
     }
 } catch (error) {
-    console.error('⚠ Erro ao inicializar Google Sheets:', error.message);
+    console.error('⚠ Erro ao inicializar Google Sheets (servidor continua):', error.message);
+    sheetsService = null;
 }
 
 // ============================================================================
@@ -50,7 +78,7 @@ try {
 // --- AI Endpoints ---
 
 app.post('/api/ai/parse-natural-language', async (req, res) => {
-    if (!aiService) return res.json({ success: false, error: 'Serviço de IA não disponível' });
+    if (!aiService) return res.json({ success: false, error: 'Serviço de IA não disponível. Configure ANTHROPIC_API_KEY.' });
     try {
         const { text, peopleList, projectsList } = req.body;
         const tasks = await aiService.parseNaturalLanguage(text, peopleList, projectsList);
@@ -98,7 +126,7 @@ app.post('/api/ai/extract-tasks', async (req, res) => {
     try {
         const { text } = req.body;
         const result = await aiService.extractTasksFromText(text);
-        res.json({ success: true, tasks: result.tasks });
+        res.json({ success: true, tasks: result ? result.tasks : [] });
     } catch (error) {
         res.json({ success: false, error: error.message });
     }
@@ -149,9 +177,16 @@ app.get('/api/sheets/sync-pull', async (req, res) => {
 app.get('/api/health', (req, res) => {
     res.json({
         status: 'ok',
+        version: '1.0.0',
         ai: !!aiService,
         sheets: sheetsService ? sheetsService.isConfigured() : false,
-        uptime: process.uptime()
+        uptime: process.uptime(),
+        env: {
+            hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
+            hasSheetsId: !!process.env.GOOGLE_SHEETS_ID,
+            hasGoogleKey: !!process.env.GOOGLE_API_KEY,
+            nodeEnv: process.env.NODE_ENV || 'development'
+        }
     });
 });
 
@@ -165,7 +200,14 @@ app.get('*', (req, res) => {
 // ============================================================================
 
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Segundo Cérebro rodando em http://0.0.0.0:${PORT}`);
-    console.log(`   IA: ${aiService ? '✓ Disponível' : '✗ Indisponível'}`);
-    console.log(`   Sheets: ${sheetsService?.isConfigured() ? '✓ Configurado' : '✗ Não configurado'}`);
+    console.log('');
+    console.log('='.repeat(60));
+    console.log('  🧠 Segundo Cérebro — Web Server');
+    console.log('='.repeat(60));
+    console.log(`  🌐 URL:     http://0.0.0.0:${PORT}`);
+    console.log(`  🤖 IA:      ${aiService ? '✓ Disponível' : '✗ Indisponível (configure ANTHROPIC_API_KEY)'}`);
+    console.log(`  📊 Sheets:  ${sheetsService?.isConfigured() ? '✓ Configurado' : '✗ Não configurado'}`);
+    console.log(`  🏭 Env:     ${process.env.NODE_ENV || 'development'}`);
+    console.log('='.repeat(60));
+    console.log('');
 });
