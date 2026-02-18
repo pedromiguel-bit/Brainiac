@@ -121,8 +121,8 @@ try {
 app.post('/api/ai/parse-natural-language', async (req, res) => {
     if (!aiService) return res.json({ success: false, error: 'Serviço de IA não disponível. Configure ANTHROPIC_API_KEY.' });
     try {
-        const { text, peopleList, projectsList } = req.body;
-        const tasks = await aiService.parseNaturalLanguage(text, peopleList, projectsList);
+        const { text, peopleList, projectsList, existingTaskDescriptions } = req.body;
+        const tasks = await aiService.parseNaturalLanguage(text, peopleList, projectsList, existingTaskDescriptions || []);
         res.json({ success: true, tasks });
     } catch (error) {
         res.json({ success: false, error: error.message });

@@ -32,6 +32,10 @@ class Storage {
   static set(key, value) {
     try {
       localStorage.setItem(key, JSON.stringify(value));
+      // IMPORTANTE: Atualizar cache do servidor para evitar retornar dados stale
+      if (Storage._serverData) {
+        Storage._serverData[key] = value;
+      }
       // Agendar sync com servidor (debounce de 2s para não sobrecarregar)
       Storage._scheduleServerSave();
     } catch (error) {
@@ -77,7 +81,8 @@ class Storage {
       const keys = [
         'checklist-tasks', 'checklist-people', 'brain-documents', 'brain-projects',
         'checklist-sprints', 'checklist-current-sprint', 'brain-quick-notes',
-        'torre-projects-impl', 'torre-projects-ongoing'
+        'torre-projects-impl', 'torre-projects-ongoing',
+        'dismissed-duplicates', 'duplicate-merge-log'
       ];
       const data = {};
       keys.forEach(key => {
@@ -723,6 +728,22 @@ class UIManager {
           subtasks: [],
           order: Date.now()
         }));
+        // Auto-criar pessoas que a IA detectou via OCR mas não existem na configuração
+        const existingPeopleOCR = this.store.people.map(p => p.toLowerCase());
+        const newPeopleOCR = new Set();
+        newTasks.forEach(task => {
+          (task.people || []).forEach(personName => {
+            if (personName && !existingPeopleOCR.includes(personName.toLowerCase())) {
+              newPeopleOCR.add(personName);
+            }
+          });
+        });
+        if (newPeopleOCR.size > 0) {
+          newPeopleOCR.forEach(p => this.store.people.push(p));
+          this.store.savePeople();
+          this.showToast(`👤 ${newPeopleOCR.size} pessoa(s) criada(s): ${[...newPeopleOCR].join(', ')}`, 'info');
+        }
+
         this.store.tasks.push(...newTasks);
         this.store.saveTasks();
         this.showToast(`✓ ${newTasks.length} tarefa(s) extraída(s) da imagem`, 'success');
@@ -922,17 +943,28 @@ class UIManager {
       project.name = trimmedName;
       this.store.saveProjects();
 
-      // Atualizar tarefas associadas
+      // Atualizar tarefas associadas (campo legado 'project' E array 'projects[]')
       let updatedTasksCount = 0;
       this.store.tasks.forEach(task => {
+        let changed = false;
+        // Campo legado
         if (task.project === oldName) {
           task.project = trimmedName;
-          updatedTasksCount++;
+          changed = true;
         }
+        // Array de projetos
+        if (task.projects && task.projects.length) {
+          const idx = task.projects.indexOf(oldName);
+          if (idx !== -1) {
+            task.projects[idx] = trimmedName;
+            changed = true;
+          }
+        }
+        if (changed) updatedTasksCount++;
       });
       if (updatedTasksCount > 0) this.store.saveTasks();
 
-      console.log(`✅ Projeto renomeado: ${oldName} -> ${trimmedName}`);
+      console.log(`✅ Projeto renomeado: ${oldName} -> ${trimmedName} (${updatedTasksCount} tarefas atualizadas)`);
       this.showToast(`✓ Projeto renomeado para "${trimmedName}"`, 'success');
       this.render();
     });
@@ -967,6 +999,8 @@ class UIManager {
         quickNotes: this.store.quickNotes,
         projectsImpl: this.store.projectsImpl,
         projectsOngoing: this.store.projectsOngoing,
+        dismissedDuplicates: Storage.get('dismissed-duplicates', []),
+        duplicateMergeLog: Storage.get('duplicate-merge-log', []),
         exportedAt: new Date().toISOString()
       };
 
@@ -1003,6 +1037,8 @@ class UIManager {
             if (data.quickNotes) { this.store.quickNotes = data.quickNotes; this.store.saveQuickNotes(); }
             if (data.projectsImpl) { this.store.projectsImpl = data.projectsImpl; this.store.saveProjectsImpl(); }
             if (data.projectsOngoing) { this.store.projectsOngoing = data.projectsOngoing; this.store.saveProjectsOngoing(); }
+            if (data.dismissedDuplicates) { Storage.set('dismissed-duplicates', data.dismissedDuplicates); }
+            if (data.duplicateMergeLog) { Storage.set('duplicate-merge-log', data.duplicateMergeLog); }
             this.showToast('✓ Dados importados com sucesso', 'success');
             this.render();
           } catch (error) {
@@ -1027,6 +1063,35 @@ class UIManager {
     });
 
     // --- NOTIFICAÇÕES ---
+    // --- DUPLICATE DETECTION ---
+
+    on('.dup-merge-a', (e, btn) => {
+      const keepId = parseFloat(btn.dataset.keepId);
+      const removeId = parseFloat(btn.dataset.removeId);
+      if (confirm('Mesclar tarefas? A tarefa B será combinada na tarefa A e removida.')) {
+        this.mergeDuplicateTasks(keepId, removeId);
+        this.render();
+      }
+    });
+
+    on('.dup-merge-b', (e, btn) => {
+      const keepId = parseFloat(btn.dataset.keepId);
+      const removeId = parseFloat(btn.dataset.removeId);
+      if (confirm('Mesclar tarefas? A tarefa A será combinada na tarefa B e removida.')) {
+        this.mergeDuplicateTasks(keepId, removeId);
+        this.render();
+      }
+    });
+
+    on('.dup-dismiss', (e, btn) => {
+      const pairKey = btn.dataset.pairKey;
+      this.dismissDuplicate(pairKey);
+      // Remover visualmente o card
+      const pairEl = btn.closest('.duplicate-pair');
+      if (pairEl) pairEl.remove();
+      this.showToast('Duplicata ignorada', 'info');
+    });
+
     on('#btn-save-notifications', () => {
       const followUps = document.getElementById('notif-followups')?.checked ?? true;
       const overdue = document.getElementById('notif-overdue')?.checked ?? true;
@@ -1482,6 +1547,222 @@ Cole checklists, atas de reunião, e-mails ou qualquer texto — a IA extrai as 
     return div.innerHTML;
   }
 
+  // ============================================================================
+  // DUPLICATE DETECTION SYSTEM
+  // ============================================================================
+
+  /**
+   * Calcula similaridade entre duas strings (0.0 a 1.0)
+   * Usa Dice Coefficient com bigrams para boa performance e precisão
+   */
+  stringSimilarity(a, b) {
+    if (!a || !b) return 0;
+    a = a.toLowerCase().trim();
+    b = b.toLowerCase().trim();
+    if (a === b) return 1.0;
+    if (a.length < 2 || b.length < 2) return 0;
+
+    const bigramsA = new Map();
+    for (let i = 0; i < a.length - 1; i++) {
+      const bigram = a.substring(i, i + 2);
+      bigramsA.set(bigram, (bigramsA.get(bigram) || 0) + 1);
+    }
+
+    let intersectionSize = 0;
+    for (let i = 0; i < b.length - 1; i++) {
+      const bigram = b.substring(i, i + 2);
+      const count = bigramsA.get(bigram) || 0;
+      if (count > 0) {
+        bigramsA.set(bigram, count - 1);
+        intersectionSize++;
+      }
+    }
+
+    return (2.0 * intersectionSize) / (a.length - 1 + b.length - 1);
+  }
+
+  /**
+   * Encontra pares de tarefas duplicadas/similares
+   * Retorna array de { task1, task2, similarity, reason }
+   */
+  findDuplicateTasks(threshold = 0.6) {
+    const tasks = this.store.tasks.filter(t => !t.completed);
+    const duplicates = [];
+    const dismissedDupes = Storage.get('dismissed-duplicates', []);
+
+    for (let i = 0; i < tasks.length; i++) {
+      for (let j = i + 1; j < tasks.length; j++) {
+        const t1 = tasks[i];
+        const t2 = tasks[j];
+
+        // Pula pares já descartados pelo usuário
+        const pairKey = [t1.id, t2.id].sort().join('-');
+        if (dismissedDupes.includes(pairKey)) continue;
+
+        const descSim = this.stringSimilarity(t1.description, t2.description);
+
+        // Similaridade alta na descrição
+        if (descSim >= threshold) {
+          let reason = `Descrição ${Math.round(descSim * 100)}% similar`;
+          // Bônus de contexto
+          const samePeople = (t1.people || []).some(p => (t2.people || []).includes(p));
+          const sameProject = (t1.projects || []).some(p => (t2.projects || []).includes(p));
+          const sameDate = t1.date === t2.date;
+
+          if (samePeople) reason += ' · mesma(s) pessoa(s)';
+          if (sameProject) reason += ' · mesmo projeto';
+          if (sameDate) reason += ' · mesma data';
+
+          duplicates.push({ task1: t1, task2: t2, similarity: descSim, reason, pairKey });
+        }
+      }
+    }
+
+    // Ordenar por similaridade (mais similares primeiro)
+    duplicates.sort((a, b) => b.similarity - a.similarity);
+    return duplicates;
+  }
+
+  /**
+   * Mescla duas tarefas: mantém task1 e combina informações de task2
+   */
+  mergeDuplicateTasks(keepId, removeId) {
+    const keep = this.store.tasks.find(t => t.id === keepId);
+    const remove = this.store.tasks.find(t => t.id === removeId);
+    if (!keep || !remove) return;
+
+    // Combinar pessoas (sem duplicar)
+    const allPeople = [...new Set([...(keep.people || []), ...(remove.people || [])])];
+    keep.people = allPeople;
+    keep.person = allPeople[0] || keep.person;
+
+    // Combinar projetos (sem duplicar)
+    keep.projects = [...new Set([...(keep.projects || []), ...(remove.projects || [])])];
+    keep.project = keep.projects[0] || keep.project;
+
+    // Combinar tags (sem duplicar)
+    keep.tags = [...new Set([...(keep.tags || []), ...(remove.tags || [])])];
+
+    // Combinar subtasks
+    keep.subtasks = [...(keep.subtasks || []), ...(remove.subtasks || [])];
+
+    // Combinar notas
+    if (remove.notes && remove.notes.trim()) {
+      keep.notes = (keep.notes || '') + (keep.notes ? '\n---\n' : '') + remove.notes;
+    }
+
+    // Usar a data mais cedo
+    if (remove.date && (!keep.date || remove.date < keep.date)) {
+      keep.date = remove.date;
+    }
+
+    // Usar prioridade mais alta
+    const priorityOrder = { high: 3, medium: 2, normal: 1 };
+    if ((priorityOrder[remove.priority] || 0) > (priorityOrder[keep.priority] || 0)) {
+      keep.priority = remove.priority;
+    }
+
+    // Registrar merge para referência da IA
+    const mergeLog = Storage.get('duplicate-merge-log', []);
+    mergeLog.push({
+      date: new Date().toISOString(),
+      kept: { id: keep.id, description: keep.description },
+      removed: { id: remove.id, description: remove.description },
+      similarity: this.stringSimilarity(keep.description, remove.description)
+    });
+    Storage.set('duplicate-merge-log', mergeLog);
+
+    // Remover a tarefa duplicada
+    this.store.tasks = this.store.tasks.filter(t => t.id !== removeId);
+    this.store.saveTasks();
+
+    this.showToast(`✓ Tarefas mescladas com sucesso`, 'success');
+  }
+
+  /**
+   * Descarta um par de duplicatas (não mostrar mais)
+   */
+  dismissDuplicate(pairKey) {
+    const dismissed = Storage.get('dismissed-duplicates', []);
+    if (!dismissed.includes(pairKey)) {
+      dismissed.push(pairKey);
+      Storage.set('dismissed-duplicates', dismissed);
+    }
+  }
+
+  /**
+   * Renderiza a seção de duplicatas na aba de config
+   */
+  renderDuplicatesSection() {
+    const duplicates = this.findDuplicateTasks(0.55);
+
+    if (duplicates.length === 0) {
+      return `
+        <div class="card">
+          <h3 class="card-title">🔍 Detecção de Duplicatas</h3>
+          <div style="text-align:center;padding:1rem;color:var(--text-muted);">
+            <div style="font-size:2rem;margin-bottom:0.5rem;">✅</div>
+            <p>Nenhuma tarefa duplicada encontrada</p>
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div class="card">
+        <div class="card-header">
+          <h3>🔍 Detecção de Duplicatas</h3>
+          <span class="badge" style="background:var(--color-primary);color:#fff;padding:0.25rem 0.75rem;border-radius:1rem;font-size:0.8rem;">${duplicates.length} encontrada(s)</span>
+        </div>
+        <div class="duplicates-list" style="display:flex;flex-direction:column;gap:1rem;margin-top:0.75rem;">
+          ${duplicates.map((dup, idx) => `
+            <div class="duplicate-pair" data-pair-key="${dup.pairKey}" style="border:1px solid var(--color-border);border-radius:0.75rem;padding:1rem;background:var(--bg-card);">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+                <span style="font-size:0.8rem;color:var(--text-muted);font-weight:600;">
+                  ⚠️ ${dup.reason}
+                </span>
+                <span style="font-size:0.75rem;background:${dup.similarity > 0.8 ? '#dc2626' : '#f59e0b'};color:#fff;padding:0.15rem 0.5rem;border-radius:0.5rem;">
+                  ${Math.round(dup.similarity * 100)}% similar
+                </span>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
+                <div style="border:1px solid var(--color-border);border-radius:0.5rem;padding:0.75rem;background:var(--bg-main);">
+                  <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.25rem;text-transform:uppercase;font-weight:600;">Tarefa A</div>
+                  <p style="font-weight:600;margin-bottom:0.25rem;">${this.escapeHtml(dup.task1.description)}</p>
+                  <div style="font-size:0.75rem;color:var(--text-muted);">
+                    👤 ${(dup.task1.people || [dup.task1.person]).join(', ')}
+                    ${dup.task1.date ? ' · 📅 ' + this.formatDate(dup.task1.date) : ''}
+                    ${dup.task1.projects && dup.task1.projects.length ? ' · 📁 ' + dup.task1.projects.join(', ') : ''}
+                  </div>
+                </div>
+                <div style="border:1px solid var(--color-border);border-radius:0.5rem;padding:0.75rem;background:var(--bg-main);">
+                  <div style="font-size:0.7rem;color:var(--text-muted);margin-bottom:0.25rem;text-transform:uppercase;font-weight:600;">Tarefa B</div>
+                  <p style="font-weight:600;margin-bottom:0.25rem;">${this.escapeHtml(dup.task2.description)}</p>
+                  <div style="font-size:0.75rem;color:var(--text-muted);">
+                    👤 ${(dup.task2.people || [dup.task2.person]).join(', ')}
+                    ${dup.task2.date ? ' · 📅 ' + this.formatDate(dup.task2.date) : ''}
+                    ${dup.task2.projects && dup.task2.projects.length ? ' · 📁 ' + dup.task2.projects.join(', ') : ''}
+                  </div>
+                </div>
+              </div>
+              <div style="display:flex;gap:0.5rem;margin-top:0.75rem;justify-content:flex-end;">
+                <button class="btn btn-sm btn-primary dup-merge-a" data-keep-id="${dup.task1.id}" data-remove-id="${dup.task2.id}" data-pair-key="${dup.pairKey}">
+                  Manter A, mesclar B
+                </button>
+                <button class="btn btn-sm btn-primary dup-merge-b" data-keep-id="${dup.task2.id}" data-remove-id="${dup.task1.id}" data-pair-key="${dup.pairKey}">
+                  Manter B, mesclar A
+                </button>
+                <button class="btn btn-sm dup-dismiss" data-pair-key="${dup.pairKey}" style="background:var(--bg-hover);color:var(--text-muted);">
+                  Ignorar
+                </button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
   getTaskSprint(taskId) {
     return this.store.sprints.find(s => s.taskIds && s.taskIds.includes(taskId)) || null;
   }
@@ -1652,10 +1933,16 @@ Cole checklists, atas de reunião, e-mails ou qualquer texto — a IA extrai as 
           console.log('👥 Pessoas disponíveis:', this.store.people);
           console.log('📁 Projetos disponíveis:', this.store.projects.map(p => p.name));
 
+          // Enviar tarefas existentes para a IA evitar duplicatas
+          const existingTaskDescriptions = this.store.tasks
+            .filter(t => !t.completed)
+            .map(t => t.description);
+
           const aiTasks = await window.AIBridge.parseNaturalLanguage(
             text,
             this.store.people,
-            this.store.projects
+            this.store.projects,
+            existingTaskDescriptions
           );
 
           console.log('📥 IA retornou:', aiTasks);
@@ -1713,6 +2000,31 @@ Cole checklists, atas de reunião, e-mails ou qualquer texto — a IA extrai as 
               });
               this.store.saveProjects();
               this.showToast(`📁 ${newProjectNames.size} projeto(s) criado(s): ${[...newProjectNames].join(', ')}`, 'info');
+            }
+
+            // Auto-criar pessoas que a IA detectou mas não existem na configuração
+            const existingPeopleNames = this.store.people.map(p => p.toLowerCase());
+            const newPeopleNames = new Set();
+
+            newTasks.forEach(task => {
+              if (task.people && task.people.length) {
+                task.people.forEach(personName => {
+                  if (personName && !existingPeopleNames.includes(personName.toLowerCase())) {
+                    newPeopleNames.add(personName);
+                  }
+                });
+              } else if (task.person && !existingPeopleNames.includes(task.person.toLowerCase())) {
+                newPeopleNames.add(task.person);
+              }
+            });
+
+            if (newPeopleNames.size > 0) {
+              newPeopleNames.forEach(personName => {
+                this.store.people.push(personName);
+                console.log(`👤 Pessoa auto-criada: ${personName}`);
+              });
+              this.store.savePeople();
+              this.showToast(`👤 ${newPeopleNames.size} pessoa(s) criada(s): ${[...newPeopleNames].join(', ')}`, 'info');
             }
           } else {
             // IA não encontrou tarefas → fallback
@@ -3236,6 +3548,9 @@ Cole checklists, atas de reunião, e-mails ou qualquer texto — a IA extrai as 
             </div>
           </div>
         </div>
+
+        <!-- Duplicate Detection -->
+        ${this.renderDuplicatesSection()}
 
         <!-- People Management -->
         <div class="card">

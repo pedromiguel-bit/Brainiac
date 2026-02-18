@@ -19,9 +19,15 @@ class AIService {
    * Exemplo: "preciso revisar o código do Pedro amanhã com alta prioridade"
    * → { people: ["Pedro"], date: "tomorrow", description: "revisar o código", priority: "high" }
    */
-  async parseNaturalLanguage(text, peopleList, projectsList) {
+  async parseNaturalLanguage(text, peopleList, projectsList, existingTaskDescriptions = []) {
     try {
       const today = new Date().toLocaleDateString('pt-BR');
+
+      // Contexto de tarefas existentes para evitar duplicatas
+      const existingContext = existingTaskDescriptions.length > 0
+        ? `\n\nTAREFAS JÁ EXISTENTES NO SISTEMA (evite criar duplicatas):\n${existingTaskDescriptions.slice(0, 50).map((d, i) => `${i + 1}. ${d}`).join('\n')}\n`
+        : '';
+
       const message = await this.client.messages.create({
         model: 'claude-sonnet-4-20250514',
         max_tokens: 4096,
@@ -31,7 +37,7 @@ class AIService {
 
 HOJE É: ${today} (use esta data como base para cálculos)
 PESSOAS DISPONÍVEIS: ${peopleList.join(', ')}
-PROJETOS DISPONÍVEIS: ${projectsList.map(p => p.name).join(', ')}
+PROJETOS DISPONÍVEIS: ${projectsList.map(p => p.name).join(', ')}${existingContext}
 
 ═══════════════════════════════════════════════════
 REGRA #1 — ENTENDER O CONTEXTO ANTES DE CRIAR TAREFAS
@@ -69,7 +75,17 @@ Se pedir prazo LONGO + "FOLLOW-UP"/"CHECK" periódico:
 2. Tarefas de Follow-up (datas intermediárias) com tag "follow"
 
 ═══════════════════════════════════════════════════
-REGRA #4 — CORREÇÃO DE NOMES (FUZZY MATCH)
+REGRA #4 — EVITAR DUPLICATAS
+═══════════════════════════════════════════════════
+
+Se a lista de "TAREFAS JÁ EXISTENTES NO SISTEMA" foi fornecida:
+- Compare cada tarefa que você criaria com as existentes
+- Se uma tarefa muito similar já existe (>70% parecida), NÃO a crie
+- Se o texto menciona algo que já é uma tarefa existente, pule-a
+- Foque em criar apenas tarefas NOVAS que não existem ainda
+
+═══════════════════════════════════════════════════
+REGRA #5 — CORREÇÃO DE NOMES (FUZZY MATCH)
 ═══════════════════════════════════════════════════
 
 Você deve corrigir automaticamente erros de digitação nos nomes de PESSOAS e PROJETOS baseando-se nas listas fornecidas.

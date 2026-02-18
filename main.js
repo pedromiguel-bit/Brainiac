@@ -248,13 +248,13 @@ ipcMain.handle('save-file', async (event, options) => {
 // AI HANDLERS
 // ============================================================================
 
-ipcMain.handle('ai-parse-natural-language', async (event, text, peopleList, projectsList) => {
+ipcMain.handle('ai-parse-natural-language', async (event, text, peopleList, projectsList, existingTaskDescriptions = []) => {
   if (!aiService) {
     return { success: false, error: 'Serviço de IA não disponível' };
   }
 
   try {
-    const tasks = await aiService.parseNaturalLanguage(text, peopleList, projectsList);
+    const tasks = await aiService.parseNaturalLanguage(text, peopleList, projectsList, existingTaskDescriptions);
     return { success: true, tasks };
   } catch (error) {
     return { success: false, error: error.message };

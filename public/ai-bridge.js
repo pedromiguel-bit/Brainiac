@@ -17,8 +17,8 @@ class AIBridge {
         }
     }
 
-    static async parseNaturalLanguage(text, peopleList, projectsList) {
-        const result = await this._post('/api/ai/parse-natural-language', { text, peopleList, projectsList });
+    static async parseNaturalLanguage(text, peopleList, projectsList, existingTaskDescriptions = []) {
+        const result = await this._post('/api/ai/parse-natural-language', { text, peopleList, projectsList, existingTaskDescriptions });
         return result.success ? result.tasks : null;
     }
 

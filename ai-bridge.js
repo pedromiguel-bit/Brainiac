@@ -19,14 +19,14 @@ class AIBridge {
   /**
    * Processa texto em linguagem natural usando IA
    */
-  static async parseNaturalLanguage(text, peopleList, projectsList) {
+  static async parseNaturalLanguage(text, peopleList, projectsList, existingTaskDescriptions = []) {
     if (!ipcRenderer) {
       console.warn('IA não disponível (IPC não encontrado)');
       return null;
     }
 
     try {
-      const result = await ipcRenderer.invoke('ai-parse-natural-language', text, peopleList, projectsList);
+      const result = await ipcRenderer.invoke('ai-parse-natural-language', text, peopleList, projectsList, existingTaskDescriptions);
       return result.success ? result.tasks : null;
     } catch (error) {
       console.error('Erro ao processar com IA:', error);
