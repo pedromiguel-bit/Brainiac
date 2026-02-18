@@ -9,7 +9,7 @@ const express = require('express');
 const path = require('path');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 80;
 
 // ============================================================================
 // Tratamento de erros global — impede que o processo morra
@@ -213,7 +213,7 @@ const server = app.listen(PORT, '0.0.0.0', () => {
     console.log('='.repeat(60));
     console.log('  🧠 Segundo Cérebro — Web Server v2.0');
     console.log('='.repeat(60));
-    console.log(`  🌐 URL:     http://localhost:${PORT}`);
+    console.log(`  🌐 Porta:   ${PORT}`);
     console.log(`  🤖 IA:      ${aiService ? '✓ Disponível' : '✗ Indisponível'}`);
     console.log(`  📊 Sheets:  ${sheetsService?.isConfigured() ? '✓ Configurado' : '✗ Não configurado'}`);
     console.log(`  🏭 Env:     ${process.env.NODE_ENV || 'development'}`);
