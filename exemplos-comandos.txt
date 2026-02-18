@@ -1,0 +1,175 @@
+# ⚡ EXEMPLOS DE COMANDOS RÁPIDOS - SEGUNDO CÉREBRO
+
+Este arquivo contém exemplos práticos de comandos para adicionar tarefas rapidamente.
+
+═══════════════════════════════════════════════════════════════════════════════
+📌 FORMATO BÁSICO
+═══════════════════════════════════════════════════════════════════════════════
+
+Pessoa Data - Descrição [Prioridade] @Projeto #tag
+
+═══════════════════════════════════════════════════════════════════════════════
+✅ EXEMPLOS SIMPLES
+═══════════════════════════════════════════════════════════════════════════════
+
+Walter hoje - Revisar código
+Pedro amanhã - Enviar email para cliente
+Paulo 15/02 - Preparar apresentação
+
+═══════════════════════════════════════════════════════════════════════════════
+🎯 EXEMPLOS COM PRIORIDADE
+═══════════════════════════════════════════════════════════════════════════════
+
+Walter hoje - Bug crítico no sistema de pagamentos [alta]
+Pedro 10/02 - Atualizar documentação [normal]
+Paulo amanhã - Refatorar módulo de relatórios [média]
+
+═══════════════════════════════════════════════════════════════════════════════
+📁 EXEMPLOS COM PROJETO
+═══════════════════════════════════════════════════════════════════════════════
+
+Walter hoje - Implementar dashboard @Monnaie [alta]
+Pedro 11/02 - Call de alinhamento @Marthan
+Paulo amanhã - Integração de APIs @Multimax [média]
+
+═══════════════════════════════════════════════════════════════════════════════
+🏷️ EXEMPLOS COM TAGS
+═══════════════════════════════════════════════════════════════════════════════
+
+Walter hoje - Resolver bug de autenticação #urgent #backend
+Pedro 12/02 - Criar testes unitários #testing #quality
+Paulo amanhã - Otimizar queries #performance #database
+
+═══════════════════════════════════════════════════════════════════════════════
+🎨 EXEMPLOS COMPLETOS (Tudo junto)
+═══════════════════════════════════════════════════════════════════════════════
+
+Walter hoje - Implementar login com OAuth @Monnaie [alta] #auth #backend
+Pedro 13/02 - Preparar demo para investidores @HSGolden [alta] #presentation #sales
+Paulo amanhã - Configurar CI/CD pipeline @Ozox [média] #devops #automation
+
+═══════════════════════════════════════════════════════════════════════════════
+👥 EXEMPLOS COM "TODOS"
+═══════════════════════════════════════════════════════════════════════════════
+
+todos hoje - Daily standup às 9h
+todos 14/02 - Reunião de planejamento [alta]
+todos amanhã - Review de código do sprint
+
+═══════════════════════════════════════════════════════════════════════════════
+📅 EXEMPLOS COM DATAS VARIADAS
+═══════════════════════════════════════════════════════════════════════════════
+
+Walter hoje - Tarefa para hoje
+Pedro amanhã - Tarefa para amanhã
+Paulo 09/02 - Tarefa com data específica (DD/MM)
+Walter 15/02/2026 - Tarefa com data completa (DD/MM/YYYY)
+
+═══════════════════════════════════════════════════════════════════════════════
+🚀 EXEMPLOS PRÁTICOS DO DIA A DIA
+═══════════════════════════════════════════════════════════════════════════════
+
+# Sprint Development
+Walter hoje - Setup ambiente de desenvolvimento @BigCredit [alta] #setup
+Pedro hoje - Implementar API de usuários @BigCredit [alta] #backend #api
+Paulo amanhã - Criar testes de integração @BigCredit [média] #testing
+
+# Client Management
+Walter 10/02 - Follow-up com Monnaie sobre dashboard [alta] @Monnaie #followup
+Pedro 10/02 - Enviar proposta comercial @HSGolden [média] #sales
+Paulo 11/02 - Demo técnica para Marthan @Marthan [alta] #demo
+
+# Code Quality
+Walter hoje - Code review do PR #234 [normal] #review
+Pedro amanhã - Refatorar módulo de pagamentos [média] #refactoring
+Paulo hoje - Atualizar documentação da API [normal] #docs
+
+# Meetings & Events
+todos hoje - Daily standup 9h
+todos 14/02 - Planning da próxima sprint [alta] #planning
+todos 15/02 - Retrospectiva do mês [média] #retro
+
+# DevOps & Infrastructure
+Paulo hoje - Configurar monitoring @Ozox [alta] #devops #monitoring
+Walter amanhã - Otimizar performance do banco [média] #performance
+Pedro 12/02 - Setup de backup automático [normal] #backup
+
+# Research & Innovation
+Walter 15/02 - Pesquisar novas ferramentas de IA [normal] #research
+Pedro 16/02 - Protótipo de feature com WebSockets [média] #innovation
+Paulo 17/02 - Análise de escalabilidade [média] #architecture
+
+═══════════════════════════════════════════════════════════════════════════════
+💡 DICAS DE USO
+═══════════════════════════════════════════════════════════════════════════════
+
+1. MÚLTIPLAS TAREFAS: Cole várias linhas de uma vez para criar múltiplas tarefas
+
+2. PRIORIDADES:
+   - [alta] ou [high] = 🔴 Prioridade Alta
+   - [média] ou [media] ou [medium] = 🟡 Prioridade Média
+   - Sem especificar = 🔵 Prioridade Normal
+
+3. DATAS:
+   - "hoje" ou "today" = Data de hoje
+   - "amanhã" ou "amanha" ou "tomorrow" = Data de amanhã
+   - "DD/MM" = Data específica (ano atual)
+   - "DD/MM/YYYY" = Data completa
+
+4. PROJETOS:
+   - Use @NomeDoProjeto para associar a um projeto
+   - O nome pode ser parcial (ex: @Monn para Monnaie)
+
+5. TAGS:
+   - Use #tag para adicionar tags
+   - Pode adicionar múltiplas tags (#tag1 #tag2 #tag3)
+
+6. PESSOA "TODOS":
+   - Use "todos" ou "all" para criar a mesma tarefa para todas as pessoas
+
+═══════════════════════════════════════════════════════════════════════════════
+🎯 TEMPLATES PRONTOS PARA COPIAR
+═══════════════════════════════════════════════════════════════════════════════
+
+# Template: Sprint Planning
+Walter hoje - Revisar backlog do sprint @[PROJETO] [alta] #planning
+Pedro hoje - Definir user stories @[PROJETO] [média] #planning
+Paulo hoje - Estimar complexidade das tasks @[PROJETO] [normal] #planning
+
+# Template: Bug Fix
+[PESSOA] hoje - [BUG CRÍTICO] [alta] #bug #urgent
+[PESSOA] amanhã - [BUG MENOR] [normal] #bug
+
+# Template: Feature Development
+[PESSOA] [DATA] - Implementar [FEATURE] @[PROJETO] [alta] #feature #backend
+[PESSOA] [DATA] - Criar testes para [FEATURE] @[PROJETO] [média] #testing
+[PESSOA] [DATA] - Documentar [FEATURE] @[PROJETO] [normal] #docs
+
+# Template: Client Meeting
+[PESSOA] [DATA] - Call com [CLIENTE] sobre [ASSUNTO] @[PROJETO] [alta] #meeting
+[PESSOA] [DATA] - Preparar apresentação para [CLIENTE] [alta] #presentation
+[PESSOA] [DATA] - Follow-up pós-reunião [CLIENTE] [normal] #followup
+
+═══════════════════════════════════════════════════════════════════════════════
+🎬 AÇÕES RÁPIDAS
+═══════════════════════════════════════════════════════════════════════════════
+
+Copie e cole estes blocos diretamente no campo de comandos:
+
+Walter hoje - Revisar PRs pendentes [alta] #review
+Pedro hoje - Atualizar dashboard de vendas @Monnaie [alta] #frontend
+Paulo hoje - Otimizar queries lentas [média] #performance #database
+todos hoje - Daily standup às 9h
+
+Walter amanhã - Implementar feature de notificações [alta] #feature
+Pedro amanhã - Preparar demo para cliente [alta] #demo
+Paulo amanhã - Code review e merge [normal] #review
+
+Walter 15/02 - Planejamento do próximo sprint [média] #planning
+Pedro 15/02 - Análise de métricas do mês [normal] #analytics
+Paulo 15/02 - Refatoração de código legado [média] #refactoring
+
+═══════════════════════════════════════════════════════════════════════════════
+
+Desenvolvido para Segundo Cérebro - Task Manager Desktop
+Maximize sua produtividade com comandos rápidos!

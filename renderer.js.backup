@@ -1,0 +1,1418 @@
+// ============================================================================
+// SEGUNDO CÉREBRO - DESKTOP APP
+// Sistema de Gerenciamento de Tarefas com Memória de Contexto
+// ============================================================================
+
+const { ipcRenderer } = require('electron');
+const fs = require('fs').promises;
+const path = require('path');
+
+// ============================================================================
+// STORAGE SYSTEM (usando localStorage do Electron)
+// ============================================================================
+
+class Storage {
+  static get(key, defaultValue = null) {
+    try {
+      const item = localStorage.getItem(key);
+      return item ? JSON.parse(item) : defaultValue;
+    } catch (error) {
+      console.error(`Error loading ${key}:`, error);
+      return defaultValue;
+    }
+  }
+
+  static set(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch (error) {
+      console.error(`Error saving ${key}:`, error);
+    }
+  }
+
+  static clear() {
+    localStorage.clear();
+  }
+}
+
+// ============================================================================
+// DATA MODELS
+// ============================================================================
+
+class DataStore {
+  constructor() {
+    this.tasks = Storage.get('checklist-tasks', []);
+    this.people = Storage.get('checklist-people', ['Walter', 'Pedro', 'Paulo']);
+    this.documents = Storage.get('brain-documents', []);
+    this.projects = Storage.get('brain-projects', [
+      { id: 'monnaie', name: 'Monnaie', status: 'active', createdAt: new Date().toISOString() },
+      { id: 'hs-golden', name: 'HS Golden', status: 'active', createdAt: new Date().toISOString() },
+      { id: 'marthan', name: 'Marthan', status: 'active', createdAt: new Date().toISOString() },
+      { id: 'multimax', name: 'Multimax', status: 'active', createdAt: new Date().toISOString() },
+      { id: 'big-credit', name: 'Big Credit', status: 'implementation', createdAt: new Date().toISOString() },
+      { id: 'ozox', name: 'Ozox', status: 'implementation', createdAt: new Date().toISOString() },
+    ]);
+  }
+
+  saveTasks() {
+    Storage.set('checklist-tasks', this.tasks);
+  }
+
+  savePeople() {
+    Storage.set('checklist-people', this.people);
+  }
+
+  saveDocuments() {
+    Storage.set('brain-documents', this.documents);
+  }
+
+  saveProjects() {
+    Storage.set('brain-projects', this.projects);
+  }
+}
+
+// ============================================================================
+// COMMAND PARSER
+// ============================================================================
+
+class CommandParser {
+  static parseDate(dateStr) {
+    const today = new Date();
+    const normalized = dateStr.toLowerCase().trim();
+
+    if (normalized === 'hoje' || normalized === 'today') {
+      return today.toISOString().split('T')[0];
+    }
+
+    if (normalized === 'amanhã' || normalized === 'amanha' || normalized === 'tomorrow') {
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      return tomorrow.toISOString().split('T')[0];
+    }
+
+    const dateMatch = dateStr.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/);
+    if (dateMatch) {
+      const day = dateMatch[1].padStart(2, '0');
+      const month = dateMatch[2].padStart(2, '0');
+      let year = dateMatch[3];
+
+      if (!year) {
+        year = today.getFullYear();
+      } else if (year.length === 2) {
+        year = '20' + year;
+      }
+
+      return `${year}-${month}-${day}`;
+    }
+
+    return today.toISOString().split('T')[0];
+  }
+
+  static extractPriority(text) {
+    const priorityMatch = text.match(/\[(alta|high|média|media|medium|normal|baixa|low)\]/i);
+    if (priorityMatch) {
+      const priority = priorityMatch[1].toLowerCase();
+      const cleanText = text.replace(priorityMatch[0], '').trim();
+
+      if (priority === 'alta' || priority === 'high') return { priority: 'high', text: cleanText };
+      if (priority === 'média' || priority === 'media' || priority === 'medium') return { priority: 'medium', text: cleanText };
+      return { priority: 'normal', text: cleanText };
+    }
+    return { priority: 'normal', text };
+  }
+
+  static extractTags(text) {
+    const tags = [];
+    const tagRegex = /#(\w+)/g;
+    let match;
+
+    while ((match = tagRegex.exec(text)) !== null) {
+      tags.push(match[1]);
+    }
+
+    const cleanText = text.replace(/#\w+/g, '').trim();
+    return { tags, text: cleanText };
+  }
+
+  static extractProject(text, projectsList) {
+    const projectMatch = text.match(/@(\w+)/);
+    if (projectMatch) {
+      const projectName = projectMatch[1];
+      const cleanText = text.replace(projectMatch[0], '').trim();
+
+      const project = projectsList.find(p =>
+        p.name.toLowerCase().includes(projectName.toLowerCase()) ||
+        p.id.toLowerCase().includes(projectName.toLowerCase())
+      );
+
+      return { project: project?.name, text: cleanText };
+    }
+    return { project: null, text };
+  }
+
+  static parse(text, peopleList, projectsList) {
+    const lines = text.trim().split('\n').filter(line => line.trim());
+    const tasks = [];
+
+    lines.forEach(line => {
+      const parts = line.split('-', 2);
+      if (parts.length < 2) return;
+
+      let [personDatePart, descriptionPart] = parts;
+      personDatePart = personDatePart.trim();
+      descriptionPart = descriptionPart.trim();
+
+      const tokens = personDatePart.split(/\s+/);
+      if (tokens.length === 0) return;
+
+      let person = tokens[0];
+      let dateStr = tokens.length > 1 ? tokens.slice(1).join(' ') : 'hoje';
+
+      const targetPeople = person.toLowerCase() === 'todos' || person.toLowerCase() === 'all'
+        ? peopleList
+        : [person];
+
+      const date = this.parseDate(dateStr);
+
+      let processed = this.extractPriority(descriptionPart);
+      processed = { ...processed, ...this.extractProject(processed.text, projectsList) };
+      processed = { ...processed, ...this.extractTags(processed.text) };
+
+      targetPeople.forEach(targetPerson => {
+        tasks.push({
+          id: Date.now() + Math.random(),
+          description: processed.text,
+          person: targetPerson,
+          date,
+          priority: processed.priority,
+          completed: false,
+          createdAt: new Date().toISOString(),
+          project: processed.project,
+          tags: processed.tags.length > 0 ? processed.tags : undefined
+        });
+      });
+    });
+
+    return tasks;
+  }
+
+  static parseMarkdown(markdown, peopleList) {
+    const tasks = [];
+    const lines = markdown.split('\n');
+
+    let currentPerson = null;
+    let currentDate = null;
+
+    lines.forEach(line => {
+      const personMatch = line.match(/^##\s*(?:🎯\s*)?([A-Z]+)/i);
+      if (personMatch) {
+        const personName = personMatch[1];
+        currentPerson = peopleList.find(p =>
+          p.toLowerCase() === personName.toLowerCase()
+        ) || personName;
+        currentDate = this.parseDate(line);
+        return;
+      }
+
+      const taskMatch = line.match(/^-\s*\[([ x])\]\s*(.+)$/i);
+      if (taskMatch && currentPerson) {
+        const isCompleted = taskMatch[1].toLowerCase() === 'x';
+        let description = taskMatch[2].trim();
+
+        let priority = 'normal';
+        const priorityMatch = description.match(/\[(alta|high|média|media|medium|normal)\]/i);
+        if (priorityMatch) {
+          const p = priorityMatch[1].toLowerCase();
+          priority = (p === 'alta' || p === 'high') ? 'high' :
+                     (p === 'média' || p === 'media' || p === 'medium') ? 'medium' : 'normal';
+          description = description.replace(priorityMatch[0], '').trim();
+        }
+
+        let taskDate = currentDate;
+        const taskDateMatch = description.match(/\(prazo:\s*(\d{1,2}\/\d{1,2}(?:\/\d{2,4})?)\)/i);
+        if (taskDateMatch) {
+          taskDate = this.parseDate(taskDateMatch[1]);
+          description = description.replace(taskDateMatch[0], '').trim();
+        }
+
+        tasks.push({
+          id: Date.now() + Math.random(),
+          description,
+          person: currentPerson,
+          date: taskDate,
+          priority,
+          completed: isCompleted,
+          createdAt: new Date().toISOString()
+        });
+      }
+    });
+
+    return tasks;
+  }
+}
+
+// ============================================================================
+// UI MANAGER
+// ============================================================================
+
+class UIManager {
+  constructor(dataStore) {
+    this.store = dataStore;
+    this.currentTab = 'tasks';
+    this.filters = {
+      person: 'all',
+      date: 'all',
+      priority: 'all',
+      completed: 'pending'
+    };
+    this.searchQuery = '';
+    this.toasts = [];
+  }
+
+  showToast(message, type = 'success') {
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+
+    const icon = type === 'success' ? '✓' : type === 'error' ? '✕' : '⚠';
+    toast.innerHTML = `<span class="toast-icon">${icon}</span> ${message}`;
+
+    const container = document.getElementById('toast-container');
+    container.appendChild(toast);
+
+    setTimeout(() => {
+      toast.classList.add('toast-fade-out');
+      setTimeout(() => toast.remove(), 300);
+    }, 3000);
+  }
+
+  formatDate(dateStr) {
+    const date = new Date(dateStr + 'T00:00:00');
+    return date.toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric'
+    });
+  }
+
+  render() {
+    const root = document.getElementById('root');
+
+    root.innerHTML = `
+      <div id="toast-container"></div>
+
+      <header class="header">
+        <div class="header-content">
+          <div class="header-title">
+            <svg class="header-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9.5 2A2.5 2.5 0 0 0 7 4.5v15A2.5 2.5 0 0 0 9.5 22h5a2.5 2.5 0 0 0 2.5-2.5v-15A2.5 2.5 0 0 0 14.5 2h-5z"/>
+              <path d="M9 6h6"/>
+              <path d="M9 10h6"/>
+              <path d="M9 14h6"/>
+            </svg>
+            <div>
+              <h1>Segundo Cérebro</h1>
+              <p class="header-subtitle">Gerenciador de Tarefas com Memória de Contexto</p>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <nav class="tabs">
+        <div class="tabs-content">
+          <button class="tab ${this.currentTab === 'tasks' ? 'tab-active' : ''}" data-tab="tasks">
+            📋 Tarefas
+          </button>
+          <button class="tab ${this.currentTab === 'memory' ? 'tab-active' : ''}" data-tab="memory">
+            📚 Memória
+          </button>
+          <button class="tab ${this.currentTab === 'config' ? 'tab-active' : ''}" data-tab="config">
+            ⚙️ Configurações
+          </button>
+        </div>
+      </nav>
+
+      <main class="main-content">
+        <div id="tab-content"></div>
+      </main>
+    `;
+
+    // Attach tab listeners
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        this.currentTab = tab.dataset.tab;
+        this.render();
+      });
+    });
+
+    // Render active tab
+    this.renderActiveTab();
+  }
+
+  renderActiveTab() {
+    const content = document.getElementById('tab-content');
+
+    if (this.currentTab === 'tasks') {
+      this.renderTasksTab(content);
+    } else if (this.currentTab === 'memory') {
+      this.renderMemoryTab(content);
+    } else if (this.currentTab === 'config') {
+      this.renderConfigTab(content);
+    }
+  }
+
+  renderTasksTab(container) {
+    const today = new Date().toISOString().split('T')[0];
+    const todayTasks = this.store.tasks.filter(t => t.date === today && !t.completed);
+    const overdueTasks = this.store.tasks.filter(t => t.date < today && !t.completed);
+    const completed = this.store.tasks.filter(t => t.completed).length;
+    const total = this.store.tasks.length;
+    const completionRate = total > 0 ? ((completed / total) * 100).toFixed(1) : 0;
+
+    container.innerHTML = `
+      <div class="space-y-6">
+        <!-- Dashboard Summary -->
+        <div class="card-grid">
+          <div class="stat-card stat-blue">
+            <div class="stat-label">Hoje</div>
+            <div class="stat-value">${todayTasks.length}</div>
+            <div class="stat-sub">tarefas pendentes</div>
+          </div>
+
+          <div class="stat-card stat-red">
+            <div class="stat-label">Atrasadas</div>
+            <div class="stat-value">${overdueTasks.length}</div>
+            <div class="stat-sub">precisam atenção</div>
+          </div>
+
+          <div class="stat-card stat-green">
+            <div class="stat-label">Conclusão</div>
+            <div class="stat-value">${completionRate}%</div>
+            <div class="stat-sub">${completed} de ${total}</div>
+          </div>
+        </div>
+
+        <!-- Command Input -->
+        <div class="card">
+          <div class="card-header">
+            <h3>⚡ Adicionar Tarefas Rapidamente</h3>
+            <span class="shortcut-hint">Ctrl+K</span>
+          </div>
+
+          <textarea
+            id="command-input"
+            class="command-textarea"
+            placeholder="Walter 09/02 - Adicionar dashboard [alta]
+Pedro hoje - Enviar mensagem @Marthan #urgent
+Paulo amanhã - Review de código"
+          ></textarea>
+
+          <div class="button-group">
+            <button id="btn-process-commands" class="btn btn-primary">
+              ⚡ Processar Comandos
+            </button>
+            <button id="btn-clear-commands" class="btn btn-secondary">
+              Limpar
+            </button>
+            <button id="btn-import-checklist" class="btn btn-purple">
+              📥 Importar Checklist
+            </button>
+            <button id="btn-toggle-form" class="btn btn-success" style="margin-left: auto;">
+              + Formulário Manual
+            </button>
+          </div>
+        </div>
+
+        <!-- Manual Form (hidden by default) -->
+        <div id="manual-form" class="card" style="display: none;">
+          <div class="card-header">
+            <h3>Nova Tarefa (Manual)</h3>
+            <button id="btn-close-form" class="btn-icon">✕</button>
+          </div>
+
+          <div class="form-grid">
+            <div class="form-group form-span-2">
+              <label>Descrição *</label>
+              <input type="text" id="task-description" placeholder="Ex: Adicionar dashboard de vendas">
+            </div>
+
+            <div class="form-group">
+              <label>Pessoa</label>
+              <select id="task-person">
+                ${this.store.people.map(p => `<option value="${p}">${p}</option>`).join('')}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Data</label>
+              <input type="date" id="task-date" value="${today}">
+            </div>
+
+            <div class="form-group">
+              <label>Prioridade</label>
+              <select id="task-priority">
+                <option value="normal">Normal</option>
+                <option value="medium">Média</option>
+                <option value="high">Alta</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Projeto (opcional)</label>
+              <select id="task-project">
+                <option value="">Nenhum</option>
+                ${this.store.projects.map(p => `<option value="${p.name}">${p.name}</option>`).join('')}
+              </select>
+            </div>
+
+            <div class="form-group form-span-2">
+              <label>Tags (separadas por vírgula)</label>
+              <input type="text" id="task-tags" placeholder="Ex: urgent, backend, review">
+            </div>
+          </div>
+
+          <button id="btn-add-task" class="btn btn-success">
+            + Adicionar Tarefa
+          </button>
+        </div>
+
+        <!-- Filters -->
+        <div class="card">
+          <h3 class="card-title">🔍 Filtros</h3>
+
+          <div class="filter-grid">
+            <div class="form-group">
+              <label>Pessoa</label>
+              <select id="filter-person">
+                <option value="all">Todas</option>
+                ${this.store.people.map(p => `<option value="${p}" ${this.filters.person === p ? 'selected' : ''}>${p}</option>`).join('')}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Data</label>
+              <select id="filter-date">
+                <option value="all" ${this.filters.date === 'all' ? 'selected' : ''}>Todas</option>
+                <option value="today" ${this.filters.date === 'today' ? 'selected' : ''}>Hoje</option>
+                <option value="tomorrow" ${this.filters.date === 'tomorrow' ? 'selected' : ''}>Amanhã</option>
+                <option value="overdue" ${this.filters.date === 'overdue' ? 'selected' : ''}>Atrasadas</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Prioridade</label>
+              <select id="filter-priority">
+                <option value="all" ${this.filters.priority === 'all' ? 'selected' : ''}>Todas</option>
+                <option value="high" ${this.filters.priority === 'high' ? 'selected' : ''}>Alta</option>
+                <option value="medium" ${this.filters.priority === 'medium' ? 'selected' : ''}>Média</option>
+                <option value="normal" ${this.filters.priority === 'normal' ? 'selected' : ''}>Normal</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Status</label>
+              <select id="filter-completed">
+                <option value="all" ${this.filters.completed === 'all' ? 'selected' : ''}>Todas</option>
+                <option value="pending" ${this.filters.completed === 'pending' ? 'selected' : ''}>Pendentes</option>
+                <option value="completed" ${this.filters.completed === 'completed' ? 'selected' : ''}>Concluídas</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Buscar</label>
+              <input type="text" id="filter-search" placeholder="Ctrl+F" value="${this.searchQuery}">
+            </div>
+          </div>
+        </div>
+
+        <!-- Tasks List -->
+        <div id="tasks-list"></div>
+      </div>
+    `;
+
+    // Render tasks
+    this.renderTasksList();
+
+    // Attach event listeners
+    this.attachTasksEventListeners();
+  }
+
+  renderTasksList() {
+    const container = document.getElementById('tasks-list');
+    const filteredTasks = this.getFilteredTasks();
+    const groupedTasks = this.groupTasks(filteredTasks);
+
+    if (groupedTasks.length === 0) {
+      container.innerHTML = `
+        <div class="card empty-state">
+          <div class="empty-icon">📋</div>
+          <p>Nenhuma tarefa encontrada</p>
+          <p class="empty-hint">Adicione tarefas usando os comandos rápidos acima</p>
+        </div>
+      `;
+      return;
+    }
+
+    let html = '';
+    groupedTasks.forEach(group => {
+      const pendingCount = group.tasks.filter(t => !t.completed).length;
+
+      html += `
+        <div class="task-group">
+          <div class="task-group-header">
+            <div class="task-group-info">
+              <span class="task-group-date">📅 ${this.formatDate(group.date)}</span>
+              <span class="task-group-person">👤 ${group.person}</span>
+            </div>
+            <span class="task-group-count">${pendingCount} pendente(s)</span>
+          </div>
+
+          <div class="task-list">
+            ${group.tasks.map(task => this.renderTaskCard(task)).join('')}
+          </div>
+        </div>
+      `;
+    });
+
+    container.innerHTML = html;
+
+    // Attach task event listeners
+    this.attachTaskCardListeners();
+  }
+
+  renderTaskCard(task) {
+    const priorityClass = {
+      high: 'task-high',
+      medium: 'task-medium',
+      normal: 'task-normal'
+    }[task.priority];
+
+    const priorityLabel = {
+      high: '🔴 Alta',
+      medium: '🟡 Média',
+      normal: '🔵 Normal'
+    }[task.priority];
+
+    return `
+      <div class="task-card ${priorityClass} ${task.completed ? 'task-completed' : ''}" data-task-id="${task.id}">
+        <div class="task-content">
+          <input type="checkbox" class="task-checkbox" ${task.completed ? 'checked' : ''}>
+
+          <div class="task-body">
+            <p class="task-description">${task.description}</p>
+
+            <div class="task-tags">
+              <span class="tag tag-priority">${priorityLabel}</span>
+              ${task.project ? `<span class="tag tag-project">📁 ${task.project}</span>` : ''}
+              ${task.tags ? task.tags.map(tag => `<span class="tag tag-tag">#${tag}</span>`).join('') : ''}
+            </div>
+          </div>
+
+          <button class="task-delete">🗑️</button>
+        </div>
+      </div>
+    `;
+  }
+
+  getFilteredTasks() {
+    return this.store.tasks.filter(task => {
+      if (this.filters.person !== 'all' && task.person !== this.filters.person) return false;
+      if (this.filters.priority !== 'all' && task.priority !== this.filters.priority) return false;
+      if (this.filters.completed === 'pending' && task.completed) return false;
+      if (this.filters.completed === 'completed' && !task.completed) return false;
+
+      if (this.filters.date !== 'all') {
+        const today = new Date().toISOString().split('T')[0];
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = tomorrow.toISOString().split('T')[0];
+
+        if (this.filters.date === 'today' && task.date !== today) return false;
+        if (this.filters.date === 'tomorrow' && task.date !== tomorrowStr) return false;
+        if (this.filters.date === 'overdue' && task.date >= today) return false;
+      }
+
+      if (this.searchQuery) {
+        const query = this.searchQuery.toLowerCase();
+        return task.description.toLowerCase().includes(query) ||
+               task.person.toLowerCase().includes(query) ||
+               (task.project && task.project.toLowerCase().includes(query)) ||
+               (task.tags && task.tags.some(t => t.toLowerCase().includes(query)));
+      }
+
+      return true;
+    });
+  }
+
+  groupTasks(tasks) {
+    const groups = {};
+
+    tasks.forEach(task => {
+      const key = `${task.date}_${task.person}`;
+      if (!groups[key]) {
+        groups[key] = {
+          date: task.date,
+          person: task.person,
+          tasks: []
+        };
+      }
+      groups[key].tasks.push(task);
+    });
+
+    return Object.values(groups).sort((a, b) => {
+      const dateCompare = a.date.localeCompare(b.date);
+      if (dateCompare !== 0) return dateCompare;
+      return a.person.localeCompare(b.person);
+    });
+  }
+
+  attachTasksEventListeners() {
+    // Process commands
+    document.getElementById('btn-process-commands')?.addEventListener('click', () => {
+      const input = document.getElementById('command-input');
+      const text = input.value.trim();
+
+      if (!text) {
+        this.showToast('Digite comandos primeiro', 'warning');
+        return;
+      }
+
+      const newTasks = CommandParser.parse(text, this.store.people, this.store.projects);
+
+      if (newTasks.length === 0) {
+        this.showToast('Nenhuma tarefa válida encontrada', 'warning');
+        return;
+      }
+
+      this.store.tasks.push(...newTasks);
+      this.store.saveTasks();
+      this.showToast(`✓ ${newTasks.length} tarefa(s) adicionada(s)`, 'success');
+
+      input.value = '';
+      this.renderTasksList();
+    });
+
+    // Clear commands
+    document.getElementById('btn-clear-commands')?.addEventListener('click', () => {
+      document.getElementById('command-input').value = '';
+    });
+
+    // Import checklist
+    document.getElementById('btn-import-checklist')?.addEventListener('click', async () => {
+      const result = await ipcRenderer.invoke('select-file', {
+        properties: ['openFile'],
+        filters: [{ name: 'Text Files', extensions: ['md', 'txt'] }]
+      });
+
+      if (result.canceled || result.filePaths.length === 0) return;
+
+      const filePath = result.filePaths[0];
+      const fileResult = await ipcRenderer.invoke('read-file', filePath);
+
+      if (!fileResult.success) {
+        this.showToast('Erro ao ler arquivo', 'error');
+        return;
+      }
+
+      const newTasks = CommandParser.parseMarkdown(fileResult.data, this.store.people);
+
+      if (newTasks.length === 0) {
+        this.showToast('Nenhuma tarefa encontrada no arquivo', 'warning');
+        return;
+      }
+
+      this.store.tasks.push(...newTasks);
+      this.store.saveTasks();
+      this.showToast(`✓ ${newTasks.length} tarefa(s) importada(s)`, 'success');
+      this.renderTasksList();
+    });
+
+    // Toggle manual form
+    document.getElementById('btn-toggle-form')?.addEventListener('click', () => {
+      const form = document.getElementById('manual-form');
+      form.style.display = form.style.display === 'none' ? 'block' : 'none';
+    });
+
+    document.getElementById('btn-close-form')?.addEventListener('click', () => {
+      document.getElementById('manual-form').style.display = 'none';
+    });
+
+    // Add task manually
+    document.getElementById('btn-add-task')?.addEventListener('click', () => {
+      const description = document.getElementById('task-description').value.trim();
+
+      if (!description) {
+        this.showToast('Descrição é obrigatória', 'warning');
+        return;
+      }
+
+      const person = document.getElementById('task-person').value;
+      const date = document.getElementById('task-date').value;
+      const priority = document.getElementById('task-priority').value;
+      const project = document.getElementById('task-project').value;
+      const tags = document.getElementById('task-tags').value
+        .split(',')
+        .map(t => t.trim())
+        .filter(Boolean);
+
+      const newTask = {
+        id: Date.now(),
+        description,
+        person,
+        date,
+        priority,
+        completed: false,
+        createdAt: new Date().toISOString(),
+        project: project || undefined,
+        tags: tags.length > 0 ? tags : undefined
+      };
+
+      this.store.tasks.push(newTask);
+      this.store.saveTasks();
+      this.showToast('✓ Tarefa adicionada', 'success');
+
+      // Reset form
+      document.getElementById('task-description').value = '';
+      document.getElementById('task-tags').value = '';
+      document.getElementById('manual-form').style.display = 'none';
+
+      this.renderTasksList();
+    });
+
+    // Filters
+    ['filter-person', 'filter-date', 'filter-priority', 'filter-completed'].forEach(id => {
+      document.getElementById(id)?.addEventListener('change', (e) => {
+        const filterName = id.replace('filter-', '');
+        this.filters[filterName] = e.target.value;
+        this.renderTasksList();
+      });
+    });
+
+    document.getElementById('filter-search')?.addEventListener('input', (e) => {
+      this.searchQuery = e.target.value;
+      this.renderTasksList();
+    });
+  }
+
+  attachTaskCardListeners() {
+    // Toggle completion
+    document.querySelectorAll('.task-checkbox').forEach(checkbox => {
+      checkbox.addEventListener('change', (e) => {
+        const card = e.target.closest('.task-card');
+        const taskId = parseFloat(card.dataset.taskId);
+
+        const task = this.store.tasks.find(t => t.id === taskId);
+        if (task) {
+          task.completed = e.target.checked;
+          this.store.saveTasks();
+          this.renderTasksList();
+        }
+      });
+    });
+
+    // Delete task
+    document.querySelectorAll('.task-delete').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        if (!confirm('Deletar esta tarefa?')) return;
+
+        const card = e.target.closest('.task-card');
+        const taskId = parseFloat(card.dataset.taskId);
+
+        this.store.tasks = this.store.tasks.filter(t => t.id !== taskId);
+        this.store.saveTasks();
+        this.showToast('Tarefa deletada', 'success');
+        this.renderTasksList();
+      });
+    });
+  }
+
+  renderMemoryTab(container) {
+    container.innerHTML = `
+      <div class="space-y-6">
+        <!-- Upload Section -->
+        <div class="card">
+          <h3 class="card-title">📤 Upload de Documentos</h3>
+
+          <div class="form-grid">
+            <div class="form-group">
+              <label>Projeto (opcional)</label>
+              <select id="upload-project">
+                <option value="">Nenhum</option>
+                ${this.store.projects.map(p => `<option value="${p.name}">${p.name}</option>`).join('')}
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label>Tags (separadas por vírgula)</label>
+              <input type="text" id="upload-tags" placeholder="Ex: transcricao, review, checklist">
+            </div>
+          </div>
+
+          <div class="upload-area" id="upload-area">
+            <div class="upload-icon">📄</div>
+            <p>Clique para selecionar arquivos</p>
+            <p class="upload-hint">Suporta: PDF, TXT, MD</p>
+          </div>
+        </div>
+
+        <!-- Search -->
+        <div class="card">
+          <div class="search-bar">
+            <span class="search-icon">🔍</span>
+            <input type="text" id="doc-search" placeholder="Buscar em documentos..." class="search-input">
+          </div>
+        </div>
+
+        <!-- Documents Grid -->
+        <div id="documents-grid"></div>
+
+        <!-- Projects List -->
+        <div class="card">
+          <h3 class="card-title">📁 Projetos</h3>
+          <div id="projects-list"></div>
+        </div>
+      </div>
+    `;
+
+    this.renderDocumentsGrid();
+    this.renderProjectsList();
+    this.attachMemoryEventListeners();
+  }
+
+  renderDocumentsGrid() {
+    const container = document.getElementById('documents-grid');
+    const searchQuery = document.getElementById('doc-search')?.value.toLowerCase() || '';
+
+    const filteredDocs = this.store.documents.filter(doc => {
+      if (!searchQuery) return true;
+      return doc.name.toLowerCase().includes(searchQuery) ||
+             doc.content.toLowerCase().includes(searchQuery) ||
+             (doc.project && doc.project.toLowerCase().includes(searchQuery)) ||
+             (doc.tags && doc.tags.some(t => t.toLowerCase().includes(searchQuery)));
+    });
+
+    if (filteredDocs.length === 0) {
+      container.innerHTML = `
+        <div class="card empty-state">
+          <div class="empty-icon">📄</div>
+          <p>Nenhum documento encontrado</p>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = `
+      <div class="docs-grid">
+        ${filteredDocs.map(doc => `
+          <div class="doc-card" data-doc-id="${doc.id}">
+            <div class="doc-header">
+              <div class="doc-icon">📄</div>
+              <div class="doc-info">
+                <h4 class="doc-name">${doc.name}</h4>
+                <p class="doc-date">${new Date(doc.uploadedAt).toLocaleDateString('pt-BR')}</p>
+              </div>
+              <button class="doc-delete">🗑️</button>
+            </div>
+
+            ${doc.project ? `<div class="doc-project">📁 ${doc.project}</div>` : ''}
+
+            ${doc.tags && doc.tags.length > 0 ? `
+              <div class="doc-tags">
+                ${doc.tags.map(tag => `<span class="tag tag-tag">#${tag}</span>`).join('')}
+              </div>
+            ` : ''}
+
+            <p class="doc-preview">${doc.content.substring(0, 150)}...</p>
+
+            <button class="doc-view">Ver completo →</button>
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    // Attach document listeners
+    this.attachDocumentListeners();
+  }
+
+  renderProjectsList() {
+    const container = document.getElementById('projects-list');
+
+    container.innerHTML = `
+      <div class="projects-grid">
+        ${this.store.projects.map(project => {
+          const projectDocs = this.store.documents.filter(d => d.project === project.name).length;
+          const projectTasks = this.store.tasks.filter(t => t.project === project.name).length;
+
+          const statusClass = {
+            active: 'status-active',
+            implementation: 'status-implementation',
+            churned: 'status-churned'
+          }[project.status];
+
+          return `
+            <div class="project-card">
+              <div class="project-header">
+                <h4>${project.name}</h4>
+                <span class="status-badge ${statusClass}">${project.status}</span>
+              </div>
+              <div class="project-stats">
+                <p>📄 ${projectDocs} documento(s)</p>
+                <p>✓ ${projectTasks} tarefa(s)</p>
+              </div>
+            </div>
+          `;
+        }).join('')}
+      </div>
+    `;
+  }
+
+  attachMemoryEventListeners() {
+    // Upload area click
+    document.getElementById('upload-area')?.addEventListener('click', async () => {
+      const result = await ipcRenderer.invoke('select-file', {
+        properties: ['openFile', 'multiSelections'],
+        filters: [
+          { name: 'Documents', extensions: ['txt', 'md', 'pdf'] },
+          { name: 'All Files', extensions: ['*'] }
+        ]
+      });
+
+      if (result.canceled || result.filePaths.length === 0) return;
+
+      const projectName = document.getElementById('upload-project').value;
+      const tags = document.getElementById('upload-tags').value
+        .split(',')
+        .map(t => t.trim())
+        .filter(Boolean);
+
+      for (const filePath of result.filePaths) {
+        const fileResult = await ipcRenderer.invoke('read-file', filePath);
+
+        if (fileResult.success) {
+          const fileName = path.basename(filePath);
+
+          const newDoc = {
+            id: Date.now() + Math.random(),
+            name: fileName,
+            type: fileName.endsWith('.pdf') ? 'pdf' : 'text',
+            content: fileResult.data,
+            uploadedAt: new Date().toISOString(),
+            project: projectName || undefined,
+            tags: tags.length > 0 ? tags : undefined
+          };
+
+          this.store.documents.push(newDoc);
+        }
+      }
+
+      this.store.saveDocuments();
+      this.showToast(`✓ ${result.filePaths.length} arquivo(s) salvos`, 'success');
+
+      document.getElementById('upload-tags').value = '';
+      this.renderDocumentsGrid();
+    });
+
+    // Document search
+    document.getElementById('doc-search')?.addEventListener('input', () => {
+      this.renderDocumentsGrid();
+    });
+  }
+
+  attachDocumentListeners() {
+    // Delete document
+    document.querySelectorAll('.doc-delete').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        if (!confirm('Deletar este documento?')) return;
+
+        const card = e.target.closest('.doc-card');
+        const docId = parseFloat(card.dataset.docId);
+
+        this.store.documents = this.store.documents.filter(d => d.id !== docId);
+        this.store.saveDocuments();
+        this.showToast('Documento deletado', 'success');
+        this.renderDocumentsGrid();
+      });
+    });
+
+    // View document
+    document.querySelectorAll('.doc-view').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const card = e.target.closest('.doc-card');
+        const docId = parseFloat(card.dataset.docId);
+        const doc = this.store.documents.find(d => d.id === docId);
+
+        if (doc) {
+          this.showDocumentModal(doc);
+        }
+      });
+    });
+  }
+
+  showDocumentModal(doc) {
+    const modal = document.createElement('div');
+    modal.className = 'modal';
+    modal.innerHTML = `
+      <div class="modal-content">
+        <div class="modal-header">
+          <h3>${doc.name}</h3>
+          <button class="modal-close">✕</button>
+        </div>
+        <div class="modal-body">
+          <pre>${doc.content}</pre>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    modal.querySelector('.modal-close').addEventListener('click', () => {
+      modal.remove();
+    });
+
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.remove();
+    });
+  }
+
+  renderConfigTab(container) {
+    // Calculate statistics
+    const completed = this.store.tasks.filter(t => t.completed).length;
+    const total = this.store.tasks.length;
+    const completionRate = total > 0 ? ((completed / total) * 100).toFixed(1) : 0;
+
+    const personCounts = {};
+    this.store.tasks.forEach(task => {
+      personCounts[task.person] = (personCounts[task.person] || 0) + 1;
+    });
+    const mostActive = Object.entries(personCounts).sort((a, b) => b[1] - a[1])[0];
+
+    const today = new Date().toISOString().split('T')[0];
+    const todayTasks = this.store.tasks.filter(t => t.date === today && !t.completed).length;
+    const overdue = this.store.tasks.filter(t => t.date < today && !t.completed).length;
+
+    container.innerHTML = `
+      <div class="space-y-6">
+        <!-- Statistics -->
+        <div class="card">
+          <h3 class="card-title">📊 Estatísticas</h3>
+
+          <div class="stats-grid">
+            <div class="stat-box stat-blue">
+              <div class="stat-big">${total}</div>
+              <div class="stat-label">Total de Tarefas</div>
+            </div>
+
+            <div class="stat-box stat-green">
+              <div class="stat-big">${completed}</div>
+              <div class="stat-label">Concluídas</div>
+            </div>
+
+            <div class="stat-box stat-purple">
+              <div class="stat-big">${completionRate}%</div>
+              <div class="stat-label">Taxa de Conclusão</div>
+            </div>
+
+            <div class="stat-box stat-yellow">
+              <div class="stat-big">${mostActive ? mostActive[0] : 'N/A'}</div>
+              <div class="stat-label">Mais Ativo</div>
+            </div>
+
+            <div class="stat-box stat-indigo">
+              <div class="stat-big">${this.store.documents.length}</div>
+              <div class="stat-label">Documentos</div>
+            </div>
+
+            <div class="stat-box stat-orange">
+              <div class="stat-big">${todayTasks}</div>
+              <div class="stat-label">Tarefas Hoje</div>
+            </div>
+
+            <div class="stat-box stat-red">
+              <div class="stat-big">${overdue}</div>
+              <div class="stat-label">Atrasadas</div>
+            </div>
+
+            <div class="stat-box stat-teal">
+              <div class="stat-big">${this.store.projects.length}</div>
+              <div class="stat-label">Projetos</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- People Management -->
+        <div class="card">
+          <div class="card-header">
+            <h3>👥 Gestão de Pessoas</h3>
+            <button id="btn-add-person" class="btn btn-primary btn-sm">+ Adicionar</button>
+          </div>
+
+          <div class="people-grid">
+            ${this.store.people.map(person => `
+              <div class="person-card">
+                <span>${person}</span>
+                <button class="person-remove" data-person="${person}">✕</button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Project Management -->
+        <div class="card">
+          <div class="card-header">
+            <h3>📁 Gestão de Projetos</h3>
+            <button id="btn-add-project" class="btn btn-purple btn-sm">+ Adicionar</button>
+          </div>
+
+          <div class="projects-list">
+            ${this.store.projects.map(project => `
+              <div class="project-item">
+                <div>
+                  <span class="project-item-name">${project.name}</span>
+                  <span class="project-item-status">(${project.status})</span>
+                </div>
+                <button class="project-remove" data-project-id="${project.id}">🗑️</button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- Data Management -->
+        <div class="card">
+          <h3 class="card-title">💾 Gerenciamento de Dados</h3>
+
+          <div class="button-group">
+            <button id="btn-export-data" class="btn btn-success">
+              📥 Exportar Dados
+            </button>
+            <button id="btn-import-data" class="btn btn-primary">
+              📤 Importar Dados
+            </button>
+            <button id="btn-clear-data" class="btn btn-danger" style="margin-left: auto;">
+              🗑️ Limpar Dados
+            </button>
+          </div>
+        </div>
+
+        <!-- Keyboard Shortcuts -->
+        <div class="card">
+          <h3 class="card-title">⌨️ Atalhos de Teclado</h3>
+
+          <div class="shortcuts-grid">
+            <div class="shortcut-item">
+              <span>Focus comando rápido</span>
+              <kbd>Ctrl+K</kbd>
+            </div>
+            <div class="shortcut-item">
+              <span>Nova tarefa manual</span>
+              <kbd>Ctrl+N</kbd>
+            </div>
+            <div class="shortcut-item">
+              <span>Busca global</span>
+              <kbd>Ctrl+F</kbd>
+            </div>
+            <div class="shortcut-item">
+              <span>Fechar modals</span>
+              <kbd>Esc</kbd>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    this.attachConfigEventListeners();
+  }
+
+  attachConfigEventListeners() {
+    // Add person
+    document.getElementById('btn-add-person')?.addEventListener('click', () => {
+      const name = prompt('Nome da pessoa:');
+      if (!name || !name.trim()) return;
+
+      const trimmedName = name.trim();
+      if (this.store.people.some(p => p.toLowerCase() === trimmedName.toLowerCase())) {
+        this.showToast('Pessoa já existe', 'warning');
+        return;
+      }
+
+      this.store.people.push(trimmedName);
+      this.store.savePeople();
+      this.showToast(`✓ ${trimmedName} adicionado(a)`, 'success');
+      this.render();
+    });
+
+    // Remove person
+    document.querySelectorAll('.person-remove').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const personName = e.target.dataset.person;
+
+        if (this.store.people.length <= 1) {
+          this.showToast('Deve haver pelo menos uma pessoa', 'warning');
+          return;
+        }
+
+        if (!confirm(`Remover ${personName}?`)) return;
+
+        this.store.people = this.store.people.filter(p => p !== personName);
+        this.store.savePeople();
+        this.showToast(`${personName} removido(a)`, 'success');
+        this.render();
+      });
+    });
+
+    // Add project
+    document.getElementById('btn-add-project')?.addEventListener('click', () => {
+      const name = prompt('Nome do projeto:');
+      if (!name || !name.trim()) return;
+
+      const id = name.toLowerCase().replace(/\s+/g, '-');
+
+      if (this.store.projects.some(p => p.id === id)) {
+        this.showToast('Projeto já existe', 'warning');
+        return;
+      }
+
+      const newProject = {
+        id,
+        name: name.trim(),
+        status: 'active',
+        createdAt: new Date().toISOString()
+      };
+
+      this.store.projects.push(newProject);
+      this.store.saveProjects();
+      this.showToast(`✓ Projeto "${name}" criado`, 'success');
+      this.render();
+    });
+
+    // Remove project
+    document.querySelectorAll('.project-remove').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        if (!confirm('Remover este projeto?')) return;
+
+        const projectId = e.target.dataset.projectId;
+        this.store.projects = this.store.projects.filter(p => p.id !== projectId);
+        this.store.saveProjects();
+        this.showToast('Projeto removido', 'success');
+        this.render();
+      });
+    });
+
+    // Export data
+    document.getElementById('btn-export-data')?.addEventListener('click', async () => {
+      const data = {
+        tasks: this.store.tasks,
+        people: this.store.people,
+        documents: this.store.documents,
+        projects: this.store.projects,
+        exportedAt: new Date().toISOString()
+      };
+
+      const result = await ipcRenderer.invoke('save-file', {
+        defaultPath: `segundo-cerebro-${new Date().toISOString().split('T')[0]}.json`
+      });
+
+      if (result.canceled) return;
+
+      const saveResult = await ipcRenderer.invoke('write-file', result.filePath, JSON.stringify(data, null, 2));
+
+      if (saveResult.success) {
+        this.showToast('✓ Dados exportados', 'success');
+      } else {
+        this.showToast('Erro ao exportar dados', 'error');
+      }
+    });
+
+    // Import data
+    document.getElementById('btn-import-data')?.addEventListener('click', async () => {
+      const result = await ipcRenderer.invoke('select-file', {
+        properties: ['openFile'],
+        filters: [{ name: 'JSON', extensions: ['json'] }]
+      });
+
+      if (result.canceled || result.filePaths.length === 0) return;
+
+      const fileResult = await ipcRenderer.invoke('read-file', result.filePaths[0]);
+
+      if (!fileResult.success) {
+        this.showToast('Erro ao ler arquivo', 'error');
+        return;
+      }
+
+      try {
+        const data = JSON.parse(fileResult.data);
+
+        if (data.tasks) {
+          this.store.tasks = data.tasks;
+          this.store.saveTasks();
+        }
+        if (data.people) {
+          this.store.people = data.people;
+          this.store.savePeople();
+        }
+        if (data.documents) {
+          this.store.documents = data.documents;
+          this.store.saveDocuments();
+        }
+        if (data.projects) {
+          this.store.projects = data.projects;
+          this.store.saveProjects();
+        }
+
+        this.showToast('✓ Dados importados com sucesso', 'success');
+        this.render();
+      } catch (error) {
+        this.showToast('Erro ao importar dados', 'error');
+      }
+    });
+
+    // Clear data
+    document.getElementById('btn-clear-data')?.addEventListener('click', () => {
+      if (!confirm('⚠️ ATENÇÃO: Isso apagará TODOS os dados. Tem certeza?')) return;
+
+      this.store.tasks = [];
+      this.store.documents = [];
+      this.store.saveTasks();
+      this.store.saveDocuments();
+
+      this.showToast('Dados limpos', 'success');
+      this.render();
+    });
+  }
+}
+
+// ============================================================================
+// KEYBOARD SHORTCUTS
+// ============================================================================
+
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey || e.metaKey) {
+    if (e.key === 'k') {
+      e.preventDefault();
+      document.getElementById('command-input')?.focus();
+    }
+    if (e.key === 'n') {
+      e.preventDefault();
+      const form = document.getElementById('manual-form');
+      if (form) form.style.display = 'block';
+    }
+    if (e.key === 'f') {
+      e.preventDefault();
+      document.getElementById('filter-search')?.focus();
+    }
+  }
+
+  if (e.key === 'Escape') {
+    document.getElementById('manual-form')?.style.display = 'none';
+    document.querySelectorAll('.modal').forEach(modal => modal.remove());
+  }
+});
+
+// ============================================================================
+// INITIALIZE APP
+// ============================================================================
+
+const dataStore = new DataStore();
+const uiManager = new UIManager(dataStore);
+
+document.addEventListener('DOMContentLoaded', () => {
+  uiManager.render();
+});
