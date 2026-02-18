@@ -3,7 +3,6 @@
 // ============================================================================
 
 const Anthropic = require('@anthropic-ai/sdk');
-require('dotenv').config();
 
 class AIService {
   constructor() {

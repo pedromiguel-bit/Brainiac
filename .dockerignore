@@ -1,5 +1,6 @@
 node_modules
 npm-debug.log
+package-lock.json
 dist
 out
 build
@@ -9,6 +10,7 @@ build
 .vscode
 .idea
 .claude
+.env
 .env.local
 .env.*.local
 *.md
@@ -20,3 +22,16 @@ build
 *.temp
 Thumbs.db
 .DS_Store
+
+# Arquivos do Electron (não usados na versão web)
+main.js
+preload.js
+ai-bridge.js
+executar.bat
+instalar.bat
+run.vbs
+renderer.js.backup
+index.html
+SecondBrain.jsx
+exemplo-checklist.md
+exemplos-comandos.txt

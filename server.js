@@ -1,10 +1,9 @@
 // ============================================================================
-// SERVER.JS - Servidor Web para deploy no EasyPanel (Docker)
-// Substitui o main.js do Electron por um servidor Express
+// SERVER.JS - Segundo Cérebro — Web Server para VPS / EasyPanel
 // ============================================================================
 
-// Carregar variáveis de ambiente (.env se existir, caso contrário usa env vars do sistema)
-require('dotenv').config();
+// Carregar .env se existir (em produção, env vars vêm do Docker/EasyPanel)
+try { require('dotenv').config(); } catch (e) { /* sem .env, usa env do sistema */ }
 
 const express = require('express');
 const path = require('path');
