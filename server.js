@@ -3,7 +3,7 @@
 // ============================================================================
 
 // Carregar .env se existir (em produção, env vars vêm do Docker/EasyPanel)
-try { require('dotenv').config(); } catch (e) { /* sem .env, usa env do sistema */ }
+try { require('dotenv').config(); } catch (e) { /* sem dotenv, usa env do sistema */ }
 
 const express = require('express');
 const path = require('path');
@@ -18,11 +18,21 @@ const PORT = process.env.PORT || 3000;
 process.on('uncaughtException', (err) => {
     console.error('❌ Uncaught Exception:', err.message);
     console.error(err.stack);
-    // NÃO finaliza o processo — mantém o server rodando
 });
 
-process.on('unhandledRejection', (reason, promise) => {
+process.on('unhandledRejection', (reason) => {
     console.error('❌ Unhandled Rejection:', reason);
+});
+
+// Graceful shutdown (Docker envia SIGTERM ao parar container)
+process.on('SIGTERM', () => {
+    console.log('🔄 SIGTERM recebido, encerrando gracefully...');
+    process.exit(0);
+});
+
+process.on('SIGINT', () => {
+    console.log('🔄 SIGINT recebido, encerrando...');
+    process.exit(0);
 });
 
 // ============================================================================
@@ -33,11 +43,10 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Servir arquivos estáticos
-// public/ primeiro (ai-bridge.js web tem prioridade sobre a versão Electron na raiz)
+// public/ primeiro (ai-bridge.js web tem prioridade sobre a versão Electron)
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Servir arquivos frontend que ficam na raiz do projeto (renderer.js, styles.css, icon.png)
-// No Docker, o Dockerfile copia esses para public/, mas localmente eles estão na raiz
+// Servir arquivos frontend que ficam na raiz (renderer.js, styles.css, icon.png)
 app.get('/renderer.js', (req, res) => res.sendFile(path.join(__dirname, 'renderer.js')));
 app.get('/styles.css', (req, res) => res.sendFile(path.join(__dirname, 'styles.css')));
 app.get('/icon.png', (req, res) => res.sendFile(path.join(__dirname, 'icon.png')));
@@ -78,7 +87,7 @@ try {
 }
 
 // ============================================================================
-// API ROUTES - Equivalentes aos IPC Handlers do Electron
+// API ROUTES
 // ============================================================================
 
 // --- AI Endpoints ---
@@ -178,21 +187,15 @@ app.get('/api/sheets/sync-pull', async (req, res) => {
     }
 });
 
-// --- Health Check (útil para EasyPanel) ---
+// --- Health Check ---
 
 app.get('/api/health', (req, res) => {
     res.json({
         status: 'ok',
-        version: '1.0.0',
+        version: '2.0.0',
         ai: !!aiService,
         sheets: sheetsService ? sheetsService.isConfigured() : false,
-        uptime: process.uptime(),
-        env: {
-            hasAnthropicKey: !!process.env.ANTHROPIC_API_KEY,
-            hasSheetsId: !!process.env.GOOGLE_SHEETS_ID,
-            hasGoogleKey: !!process.env.GOOGLE_API_KEY,
-            nodeEnv: process.env.NODE_ENV || 'development'
-        }
+        uptime: process.uptime()
     });
 });
 
@@ -205,15 +208,22 @@ app.get('*', (req, res) => {
 // START SERVER
 // ============================================================================
 
-app.listen(PORT, '0.0.0.0', () => {
+const server = app.listen(PORT, '0.0.0.0', () => {
     console.log('');
     console.log('='.repeat(60));
-    console.log('  🧠 Segundo Cérebro — Web Server');
+    console.log('  🧠 Segundo Cérebro — Web Server v2.0');
     console.log('='.repeat(60));
-    console.log(`  🌐 URL:     http://0.0.0.0:${PORT}`);
-    console.log(`  🤖 IA:      ${aiService ? '✓ Disponível' : '✗ Indisponível (configure ANTHROPIC_API_KEY)'}`);
+    console.log(`  🌐 URL:     http://localhost:${PORT}`);
+    console.log(`  🤖 IA:      ${aiService ? '✓ Disponível' : '✗ Indisponível'}`);
     console.log(`  📊 Sheets:  ${sheetsService?.isConfigured() ? '✓ Configurado' : '✗ Não configurado'}`);
     console.log(`  🏭 Env:     ${process.env.NODE_ENV || 'development'}`);
     console.log('='.repeat(60));
     console.log('');
+});
+
+server.on('error', (err) => {
+    console.error('❌ Erro ao iniciar servidor:', err.message);
+    if (err.code === 'EADDRINUSE') {
+        console.error(`   Porta ${PORT} já está em uso!`);
+    }
 });
