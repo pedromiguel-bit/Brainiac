@@ -33,7 +33,14 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 // Servir arquivos estáticos
+// public/ primeiro (ai-bridge.js web tem prioridade sobre a versão Electron na raiz)
 app.use(express.static(path.join(__dirname, 'public')));
+
+// Servir arquivos frontend que ficam na raiz do projeto (renderer.js, styles.css, icon.png)
+// No Docker, o Dockerfile copia esses para public/, mas localmente eles estão na raiz
+app.get('/renderer.js', (req, res) => res.sendFile(path.join(__dirname, 'renderer.js')));
+app.get('/styles.css', (req, res) => res.sendFile(path.join(__dirname, 'styles.css')));
+app.get('/icon.png', (req, res) => res.sendFile(path.join(__dirname, 'icon.png')));
 
 // ============================================================================
 // Inicializar serviços (de forma segura — nunca crasha)
