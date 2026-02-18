@@ -11,8 +11,16 @@ const hasElectron = typeof window.electronAPI !== 'undefined';
 // ============================================================================
 
 class Storage {
+  static _serverData = null;      // Cache dos dados carregados do servidor
+  static _serverLoaded = false;   // Flag: já tentou carregar do servidor?
+  static _saveTimer = null;       // Debounce para salvar no servidor
+
   static get(key, defaultValue = null) {
     try {
+      // Se temos dados do servidor, usa eles como fonte principal
+      if (Storage._serverData && key in Storage._serverData) {
+        return Storage._serverData[key];
+      }
       const item = localStorage.getItem(key);
       return item ? JSON.parse(item) : defaultValue;
     } catch (error) {
@@ -24,6 +32,8 @@ class Storage {
   static set(key, value) {
     try {
       localStorage.setItem(key, JSON.stringify(value));
+      // Agendar sync com servidor (debounce de 2s para não sobrecarregar)
+      Storage._scheduleServerSave();
     } catch (error) {
       console.error(`Error saving ${key}:`, error);
     }
@@ -31,6 +41,58 @@ class Storage {
 
   static clear() {
     localStorage.clear();
+  }
+
+  // Carrega dados do servidor (chamado 1x ao iniciar)
+  static async loadFromServer() {
+    try {
+      const res = await fetch('/api/data/load');
+      const result = await res.json();
+      if (result.success && result.data) {
+        Storage._serverData = result.data;
+        // Também salva no localStorage como cache local
+        Object.keys(result.data).forEach(key => {
+          localStorage.setItem(key, JSON.stringify(result.data[key]));
+        });
+        console.log('✓ Dados carregados do servidor');
+        return true;
+      }
+      console.log('ℹ Sem dados no servidor (primeiro uso)');
+      return false;
+    } catch (e) {
+      console.warn('⚠ Servidor indisponível, usando localStorage:', e.message);
+      return false;
+    }
+  }
+
+  // Salva todos os dados no servidor (debounced)
+  static _scheduleServerSave() {
+    if (Storage._saveTimer) clearTimeout(Storage._saveTimer);
+    Storage._saveTimer = setTimeout(() => Storage._saveToServer(), 2000);
+  }
+
+  static async _saveToServer() {
+    try {
+      // Coleta todas as chaves conhecidas do localStorage
+      const keys = [
+        'checklist-tasks', 'checklist-people', 'brain-documents', 'brain-projects',
+        'checklist-sprints', 'checklist-current-sprint', 'brain-quick-notes',
+        'torre-projects-impl', 'torre-projects-ongoing'
+      ];
+      const data = {};
+      keys.forEach(key => {
+        const val = localStorage.getItem(key);
+        if (val) data[key] = JSON.parse(val);
+      });
+
+      await fetch('/api/data/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+    } catch (e) {
+      console.warn('⚠ Erro ao salvar no servidor:', e.message);
+    }
   }
 }
 
@@ -752,15 +814,42 @@ class UIManager {
       this.store.people = this.store.people.map(p => p === oldName ? trimmedName : p);
       this.store.savePeople();
 
-      // Atualizar tarefas
+      // Atualizar tarefas (campo legado 'person' E array 'people[]')
       let updatedTasksCount = 0;
       this.store.tasks.forEach(task => {
+        let changed = false;
+        // Campo legado
         if (task.person === oldName) {
           task.person = trimmedName;
-          updatedTasksCount++;
+          changed = true;
         }
+        // Array de pessoas
+        if (task.people && task.people.length) {
+          const idx = task.people.indexOf(oldName);
+          if (idx !== -1) {
+            task.people[idx] = trimmedName;
+            changed = true;
+          }
+        }
+        if (changed) updatedTasksCount++;
       });
       if (updatedTasksCount > 0) this.store.saveTasks();
+
+      // Atualizar sprints (se tiverem referência a pessoa)
+      // Atualizar projetos da Torre (responsavel)
+      let updatedProjects = 0;
+      if (this.store.projectsImpl) {
+        this.store.projectsImpl.forEach(p => {
+          if (p.responsavel === oldName) { p.responsavel = trimmedName; updatedProjects++; }
+        });
+        if (updatedProjects > 0) this.store.saveProjectsImpl();
+      }
+      if (this.store.projectsOngoing) {
+        this.store.projectsOngoing.forEach(p => {
+          if (p.responsavel === oldName) { p.responsavel = trimmedName; updatedProjects++; }
+        });
+        if (updatedProjects > 0) this.store.saveProjectsOngoing();
+      }
 
       console.log(`✅ Pessoa renomeada: ${oldName} -> ${trimmedName} (${updatedTasksCount} tarefas atualizadas)`);
       this.showToast(`✓ ${oldName} alterado para ${trimmedName}`, 'success');
@@ -1274,28 +1363,70 @@ Cole checklists, atas de reunião, e-mails ou qualquer texto — a IA extrai as 
       return;
     }
 
-    let html = '';
+    // Agrupar por dia (accordion por data)
+    const byDate = {};
     groupedTasks.forEach(group => {
-      const pendingCount = group.tasks.filter(t => !t.completed).length;
+      if (!byDate[group.date]) byDate[group.date] = [];
+      byDate[group.date].push(group);
+    });
+
+    // Inicializar estado de collapse se não existir
+    if (!this._collapsedDays) this._collapsedDays = {};
+
+    // Determinar se "hoje" deve abrir por padrão
+    const today = new Date().toISOString().split('T')[0];
+
+    let html = '';
+    Object.keys(byDate).sort().forEach(date => {
+      const dayGroups = byDate[date];
+      const totalPending = dayGroups.reduce((sum, g) => sum + g.tasks.filter(t => !t.completed).length, 0);
+      const totalTasks = dayGroups.reduce((sum, g) => sum + g.tasks.length, 0);
+      const isCollapsed = this._collapsedDays[date] !== undefined ? this._collapsedDays[date] : (date !== today);
+      const collapsedClass = isCollapsed ? 'collapsed' : '';
 
       html += `
-        <div class="task-group">
-          <div class="task-group-header">
+        <div class="task-group ${collapsedClass}" data-group-date="${date}">
+          <div class="task-group-header" data-toggle-date="${date}">
             <div class="task-group-info">
-              <span class="task-group-date">📅 ${this.formatDate(group.date)}</span>
-              <span class="task-group-person">👤 ${group.person}</span>
+              <span class="task-group-toggle">▼</span>
+              <span class="task-group-date">📅 ${this.formatDate(date)}</span>
+              <span class="task-group-count" style="margin-left:0.5rem">${totalPending} pendente(s) · ${totalTasks} total</span>
             </div>
-            <span class="task-group-count">${pendingCount} pendente(s)</span>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+              ${dayGroups.map(g => `<span class="task-group-person" style="font-size:0.8rem">👤 ${g.person}</span>`).join('')}
+            </div>
           </div>
 
-          <div class="task-list">
-            ${group.tasks.map(task => this.renderTaskCard(task)).join('')}
+          <div class="task-group-body">
+            ${dayGroups.map(group => `
+              <div style="margin-bottom:0.75rem;">
+                ${dayGroups.length > 1 ? `<div style="font-weight:600;color:#dc2626;font-size:0.875rem;margin-bottom:0.5rem;padding-top:0.5rem;border-top:1px solid var(--color-border);">👤 ${group.person} (${group.tasks.filter(t => !t.completed).length} pendente)</div>` : ''}
+                <div class="task-list">
+                  ${group.tasks.map(task => this.renderTaskCard(task)).join('')}
+                </div>
+              </div>
+            `).join('')}
           </div>
         </div>
       `;
     });
 
     container.innerHTML = html;
+
+    // Attach collapse toggle listeners
+    container.querySelectorAll('[data-toggle-date]').forEach(header => {
+      header.addEventListener('click', (e) => {
+        // Não colapsar se clicar em botão dentro do header
+        if (e.target.closest('button')) return;
+        const date = header.dataset.toggleDate;
+        const group = container.querySelector(`[data-group-date="${date}"]`);
+        if (group) {
+          const isNowCollapsed = !group.classList.contains('collapsed');
+          group.classList.toggle('collapsed');
+          this._collapsedDays[date] = isNowCollapsed;
+        }
+      });
+    });
 
     // Attach task event listeners
     this.attachTaskCardListeners();
@@ -3265,21 +3396,28 @@ document.addEventListener('keydown', (e) => {
 
 console.log('🧠 Segundo Cérebro - Inicializando...');
 
-const dataStore = new DataStore();
-const uiManager = new UIManager(dataStore);
+// Inicialização assíncrona: carregar dados do servidor antes de renderizar
+(async function init() {
+  // Tentar carregar dados do servidor primeiro (para persistência no EasyPanel)
+  await Storage.loadFromServer();
 
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    console.log('✓ DOM carregado, renderizando interface...');
+  const dataStore = new DataStore();
+  const uiManager = new UIManager(dataStore);
+
+  const doRender = () => {
+    console.log('✓ Renderizando interface...');
     uiManager.render();
-  });
-} else {
-  console.log('✓ DOM já carregado, renderizando interface...');
-  uiManager.render();
-}
+  };
 
-// Expose UIManager for notification bridge
-window._uiManager = uiManager;
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', doRender);
+  } else {
+    doRender();
+  }
+
+  // Expose UIManager for notification bridge
+  window._uiManager = uiManager;
+})();
 
 // Setup main process notification listener
 if (window.NotificationBridge) {

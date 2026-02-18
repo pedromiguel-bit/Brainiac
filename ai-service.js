@@ -6,11 +6,12 @@ const Anthropic = require('@anthropic-ai/sdk');
 
 class AIService {
   constructor() {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
+    const apiKey = (process.env.ANTHROPIC_API_KEY || '').trim();
     if (!apiKey) {
       throw new Error('ANTHROPIC_API_KEY não está definida nas variáveis de ambiente');
     }
     this.client = new Anthropic({ apiKey });
+    console.log('✓ AIService inicializado (key: ' + apiKey.substring(0, 12) + '...)');
   }
 
   /**

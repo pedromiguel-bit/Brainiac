@@ -25,6 +25,10 @@ COPY renderer.js ./public/renderer.js
 COPY styles.css ./public/styles.css
 COPY icon.png ./public/icon.png
 
+# Diretório de dados persistentes (montar volume no EasyPanel)
+RUN mkdir -p /app/data
+VOLUME ["/app/data"]
+
 EXPOSE 3000
 
 # Usar script de debug para evitar restart loop

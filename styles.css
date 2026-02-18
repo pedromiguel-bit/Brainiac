@@ -9,25 +9,25 @@
 }
 
 :root {
-  --color-bg: #f8fafc;
-  --color-bg-secondary: #e2e8f0;
-  --color-primary: #2563eb;
+  --color-bg: #fafafa;
+  --color-bg-secondary: #e5e5e5;
+  --color-primary: #dc2626;
   --color-success: #22c55e;
   --color-warning: #eab308;
-  --color-danger: #ef4444;
-  --color-purple: #9333ea;
-  --color-text: #1e293b;
-  --color-text-secondary: #64748b;
-  --color-border: #e2e8f0;
+  --color-danger: #dc2626;
+  --color-purple: #dc2626;
+  --color-text: #171717;
+  --color-text-secondary: #525252;
+  --color-border: #d4d4d4;
 
-  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.12);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.15);
 }
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  background: linear-gradient(135deg, #fafafa 0%, #f0f0f0 100%);
   color: var(--color-text);
   overflow-x: hidden;
   min-height: 100vh;
@@ -38,9 +38,9 @@ body {
    ============================================================================ */
 
 .header {
-  background: white;
-  border-bottom: 1px solid var(--color-border);
-  box-shadow: var(--shadow-sm);
+  background: #171717;
+  border-bottom: 1px solid #2a2a2a;
+  box-shadow: var(--shadow-md);
 }
 
 .header-content {
@@ -56,19 +56,19 @@ body {
 }
 
 .header-icon {
-  color: var(--color-purple);
+  color: #dc2626;
   flex-shrink: 0;
 }
 
 .header h1 {
   font-size: 1.5rem;
   font-weight: 700;
-  color: var(--color-text);
+  color: #ffffff;
 }
 
 .header-subtitle {
   font-size: 0.875rem;
-  color: var(--color-text-secondary);
+  color: #a3a3a3;
   margin-top: 0.125rem;
 }
 
@@ -77,8 +77,8 @@ body {
    ============================================================================ */
 
 .tabs {
-  background: white;
-  border-bottom: 1px solid var(--color-border);
+  background: #1f1f1f;
+  border-bottom: 1px solid #333;
 }
 
 .tabs-content {
@@ -95,20 +95,20 @@ body {
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
-  color: var(--color-text-secondary);
+  color: #a3a3a3;
   cursor: pointer;
   transition: all 0.2s;
   font-size: 0.875rem;
 }
 
 .tab:hover {
-  color: var(--color-text);
-  background: rgba(37, 99, 235, 0.05);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.05);
 }
 
 .tab-active {
-  color: var(--color-primary);
-  border-bottom-color: var(--color-primary);
+  color: #dc2626;
+  border-bottom-color: #dc2626;
 }
 
 /* ============================================================================
@@ -191,8 +191,8 @@ body {
 }
 
 .stat-blue {
-  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
-  color: #1e40af;
+  background: linear-gradient(135deg, #fef2f2 0%, #fecaca 100%);
+  color: #991b1b;
 }
 
 .stat-red {
@@ -206,8 +206,8 @@ body {
 }
 
 .stat-purple {
-  background: linear-gradient(135deg, #f3e8ff 0%, #e9d5ff 100%);
-  color: #6b21a8;
+  background: linear-gradient(135deg, #171717 0%, #292929 100%);
+  color: #ffffff;
 }
 
 .stat-yellow {
@@ -250,7 +250,7 @@ body {
 .command-textarea:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
 }
 
 .shortcut-hint {
@@ -289,12 +289,12 @@ body {
 }
 
 .btn-primary {
-  background: var(--color-primary);
+  background: #dc2626;
   color: white;
 }
 
 .btn-primary:hover {
-  background: #1d4ed8;
+  background: #b91c1c;
 }
 
 .btn-secondary {
@@ -316,12 +316,12 @@ body {
 }
 
 .btn-purple {
-  background: var(--color-purple);
+  background: #171717;
   color: white;
 }
 
 .btn-purple:hover {
-  background: #7c3aed;
+  background: #292929;
 }
 
 .btn-danger {
@@ -398,7 +398,7 @@ body {
 .form-group select:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
 }
 
 /* ============================================================================
@@ -416,19 +416,48 @@ body {
    ============================================================================ */
 
 .task-group {
-  background: #f1f5f9;
-  padding: 1rem;
+  background: #f5f5f5;
   border-radius: 0.5rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--color-border);
+  overflow: hidden;
 }
 
 .task-group-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.75rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--color-border);
+  padding: 0.875rem 1rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.task-group-header:hover {
+  background: #ebebeb;
+}
+
+.task-group-toggle {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+  transition: transform 0.2s;
+  margin-right: 0.5rem;
+}
+
+.task-group.collapsed .task-group-toggle {
+  transform: rotate(-90deg);
+}
+
+.task-group-body {
+  padding: 0 1rem 1rem 1rem;
+  transition: max-height 0.3s ease, opacity 0.2s ease;
+  overflow: hidden;
+}
+
+.task-group.collapsed .task-group-body {
+  max-height: 0 !important;
+  padding: 0 1rem;
+  opacity: 0;
 }
 
 .task-group-info {
@@ -441,12 +470,12 @@ body {
 .task-group-date {
   font-weight: 600;
   font-size: 1.125rem;
-  color: var(--color-primary);
+  color: #171717;
 }
 
 .task-group-person {
   font-weight: 600;
-  color: var(--color-purple);
+  color: #dc2626;
 }
 
 .task-group-count {
@@ -524,8 +553,8 @@ body {
 }
 
 .tag-project {
-  background: #f3e8ff;
-  color: #6b21a8;
+  background: #fef2f2;
+  color: #991b1b;
 }
 
 .tag-tag {
@@ -578,7 +607,7 @@ body {
 
 .upload-area:hover {
   border-color: var(--color-primary);
-  background: rgba(37, 99, 235, 0.02);
+  background: rgba(220, 38, 38, 0.02);
 }
 
 .upload-icon {
@@ -617,7 +646,7 @@ body {
 .search-input:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
 }
 
 .docs-grid {
@@ -688,8 +717,8 @@ body {
 .doc-project {
   font-size: 0.75rem;
   padding: 0.25rem 0.5rem;
-  background: #f3e8ff;
-  color: #6b21a8;
+  background: #fef2f2;
+  color: #991b1b;
   border-radius: 0.25rem;
   display: inline-block;
   margin-bottom: 0.5rem;
@@ -1233,7 +1262,7 @@ kbd {
 .modal-input:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
 }
 
 .modal-actions {
@@ -1512,7 +1541,7 @@ kbd {
 .edit-modal-textarea:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
 }
 
 .edit-modal-textarea {
@@ -1663,7 +1692,7 @@ kbd {
 .search-input:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.15);
 }
 
 .search-clear {

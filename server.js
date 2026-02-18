@@ -2,11 +2,12 @@
 // SERVER.JS - Segundo Cérebro — Web Server para VPS / EasyPanel
 // ============================================================================
 
-// Carregar .env se existir (em produção, env vars vêm do Docker/EasyPanel)
-try { require('dotenv').config(); } catch (e) { /* sem dotenv, usa env do sistema */ }
+// Carregar .env se existir (override: true garante que .env tem prioridade sobre env vars vazias do sistema)
+try { require('dotenv').config({ override: true }); } catch (e) { /* sem dotenv, usa env do sistema */ }
 
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -52,10 +53,23 @@ app.use((req, res, next) => {
 // public/ primeiro (ai-bridge.js web tem prioridade sobre a versão Electron)
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Servir arquivos frontend que ficam na raiz (renderer.js, styles.css, icon.png)
-app.get('/renderer.js', (req, res) => res.sendFile(path.join(__dirname, 'renderer.js')));
-app.get('/styles.css', (req, res) => res.sendFile(path.join(__dirname, 'styles.css')));
-app.get('/icon.png', (req, res) => res.sendFile(path.join(__dirname, 'icon.png')));
+// Fallback: servir arquivos frontend que ficam na raiz (dev local, fora do Docker)
+// No Docker, esses arquivos já estão em public/ e são servidos pelo static acima
+app.get('/renderer.js', (req, res) => {
+  const pubPath = path.join(__dirname, 'public', 'renderer.js');
+  const rootPath = path.join(__dirname, 'renderer.js');
+  res.sendFile(pubPath, (err) => { if (err) res.sendFile(rootPath, (e) => { if (e) res.status(404).send('Not found'); }); });
+});
+app.get('/styles.css', (req, res) => {
+  const pubPath = path.join(__dirname, 'public', 'styles.css');
+  const rootPath = path.join(__dirname, 'styles.css');
+  res.sendFile(pubPath, (err) => { if (err) res.sendFile(rootPath, (e) => { if (e) res.status(404).send('Not found'); }); });
+});
+app.get('/icon.png', (req, res) => {
+  const pubPath = path.join(__dirname, 'public', 'icon.png');
+  const rootPath = path.join(__dirname, 'icon.png');
+  res.sendFile(pubPath, (err) => { if (err) res.sendFile(rootPath, (e) => { if (e) res.status(404).send('Not found'); }); });
+});
 
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'), (err) => {
@@ -195,6 +209,42 @@ app.get('/api/sheets/sync-pull', async (req, res) => {
         res.json(result);
     } catch (error) {
         console.error('Erro no sheets-sync-pull:', error);
+        res.json({ success: false, error: error.message });
+    }
+});
+
+// --- Persistência Server-Side (dados ficam no servidor, não só no localStorage) ---
+
+const DATA_DIR = path.join(__dirname, 'data');
+const DATA_FILE = path.join(DATA_DIR, 'store.json');
+
+// Garantir que o diretório data/ existe
+try { if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (e) { console.error('⚠ Erro ao criar diretório data/:', e.message); }
+
+app.get('/api/data/load', (req, res) => {
+    try {
+        if (fs.existsSync(DATA_FILE)) {
+            const raw = fs.readFileSync(DATA_FILE, 'utf8');
+            const data = JSON.parse(raw);
+            console.log('📂 Dados carregados do servidor');
+            res.json({ success: true, data });
+        } else {
+            res.json({ success: true, data: null });
+        }
+    } catch (error) {
+        console.error('❌ Erro ao carregar dados:', error.message);
+        res.json({ success: false, error: error.message });
+    }
+});
+
+app.post('/api/data/save', (req, res) => {
+    try {
+        const data = req.body;
+        fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2), 'utf8');
+        console.log('💾 Dados salvos no servidor');
+        res.json({ success: true });
+    } catch (error) {
+        console.error('❌ Erro ao salvar dados:', error.message);
         res.json({ success: false, error: error.message });
     }
 });
