@@ -25,8 +25,6 @@ COPY icon.png ./public/icon.png
 
 EXPOSE 3000
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1
+# EasyPanel gerencia health checks — não precisa do Docker HEALTHCHECK
 
-# Usar node diretamente (sem npm wrapper — mais estável para Docker)
 CMD ["node", "server.js"]
