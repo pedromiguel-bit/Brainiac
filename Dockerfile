@@ -23,7 +23,7 @@ COPY renderer.js ./public/renderer.js
 COPY styles.css ./public/styles.css
 COPY icon.png ./public/icon.png
 
-EXPOSE 80
+EXPOSE 3000
 
 # EasyPanel gerencia health checks — não precisa do Docker HEALTHCHECK
 
