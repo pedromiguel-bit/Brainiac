@@ -42,6 +42,12 @@ process.on('SIGINT', () => {
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Log requests for debugging
+app.use((req, res, next) => {
+    console.log(`📥 ${req.method} ${req.url}`);
+    next();
+});
+
 // Servir arquivos estáticos
 // public/ primeiro (ai-bridge.js web tem prioridade sobre a versão Electron)
 app.use(express.static(path.join(__dirname, 'public')));
@@ -50,6 +56,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.get('/renderer.js', (req, res) => res.sendFile(path.join(__dirname, 'renderer.js')));
 app.get('/styles.css', (req, res) => res.sendFile(path.join(__dirname, 'styles.css')));
 app.get('/icon.png', (req, res) => res.sendFile(path.join(__dirname, 'icon.png')));
+
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'), (err) => {
+        if (err) res.status(200).send('Brainiac Server Running (Index Missing)');
+    });
+});
 
 // ============================================================================
 // Inicializar serviços (de forma segura — nunca crasha)

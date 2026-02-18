@@ -16,6 +16,8 @@ RUN npm install --omit=dev && npm cache clean --force
 COPY server.js ./
 COPY ai-service.js ./
 COPY google-sheets-service.js ./
+COPY start.sh ./
+RUN chmod +x start.sh
 
 # Copiar frontend (versão web)
 COPY public/ ./public/
@@ -25,6 +27,5 @@ COPY icon.png ./public/icon.png
 
 EXPOSE 3000
 
-# EasyPanel gerencia health checks — não precisa do Docker HEALTHCHECK
-
-CMD ["node", "server.js"]
+# Usar script de debug para evitar restart loop
+CMD ["./start.sh"]
